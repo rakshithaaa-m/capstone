@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Large datasets
+data/raw/
+*.csv
+*.zip
+*.7z
+
+# Local/system files
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+*.key
+data/processed/
