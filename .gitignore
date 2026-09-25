@@ -1,18 +1,25 @@
-.venv/
+# Python
 __pycache__/
 *.pyc
+.venv/
+.ssh/
 
-# Large datasets
-data/raw/
-*.csv
-*.zip
-*.7z
+# Windows
+*.lnk
 
-# Local/system files
-.DS_Store
-Thumbs.db
+# Ignore raw data
+data/
 
-# Secrets
-.env
-*.key
-data/processed/
+# Ignore huge generated result files
+results/dashboard.duckdb
+results/*.duckdb
+results/*test_scores.csv
+results/*val_scores.csv
+results/*test_probs.csv
+results/*val_probs.csv
+results/risk_tiers_test.csv
+results/lstm_full_test_preds.csv
+results/lstm_full_val_preds.csv
+
+# Ignore large model weights (if over GitHub's limit)
+models/*.pt

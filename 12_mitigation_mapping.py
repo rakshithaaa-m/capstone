@@ -16,6 +16,7 @@ import argparse
 import json
 from pathlib import Path
 
+import duckdb
 import pandas as pd
 import numpy as np
 
@@ -24,6 +25,61 @@ import numpy as np
 # *_roll30_std, *_delta variant of a given attribute maps to the same
 # underlying physical cause).
 ROOT_CAUSE_LOOKUP = {
+    "vault_id": {
+        "root_cause": "Elevated risk associated with this drive's physical storage vault rather than a "
+                       "specific SMART health signal — could reflect a genuine shared-environment effect "
+                       "(power, vibration, cooling) or a deployment-cohort artifact.",
+        "action": "Cross-check this drive's individual SMART attributes before acting; do not schedule "
+                   "replacement on this signal alone.",
+    },
+    "pod_id": {
+        "root_cause": "Elevated risk associated with this drive's physical pod rather than a specific "
+                       "SMART health signal.",
+        "action": "Cross-check this drive's individual SMART attributes before acting; do not schedule "
+                   "replacement on this signal alone.",
+    },
+    "pod_slot_num": {
+        "root_cause": "Elevated risk associated with this drive's slot position within its pod rather "
+                       "than a specific SMART health signal.",
+        "action": "Cross-check this drive's individual SMART attributes before acting; do not schedule "
+                   "replacement on this signal alone.",
+    },
+    "cluster_id": {
+        "root_cause": "Elevated risk associated with this drive's cluster assignment rather than a "
+                       "specific SMART health signal.",
+        "action": "Cross-check this drive's individual SMART attributes before acting; do not schedule "
+                   "replacement on this signal alone.",
+    },
+    "is_legacy_format": {
+        "root_cause": "Elevated risk associated with this drive's data-format generation (legacy vs. "
+                       "current) rather than a specific SMART health signal.",
+        "action": "Cross-check this drive's individual SMART attributes before acting; do not schedule "
+                   "replacement on this signal alone.",
+    },
+    "smart_7_raw": {
+        "root_cause": "Seek error rate rising — the drive's read/write head is having positioning "
+                       "difficulty locating data on the platter, often an early mechanical wear signal.",
+        "action": "Increase SMART polling to daily; flag for replacement if the trend continues over "
+                   "the next few readings.",
+    },
+    "smart_199_raw": {
+        "root_cause": "UDMA CRC error count rising — data transfer errors between the drive and host "
+                       "controller. This is often a cabling/connection issue rather than drive wear.",
+        "action": "Check and reseat the drive's SATA/data cable before assuming drive failure; "
+                   "re-evaluate if errors persist after a cable check.",
+    },
+    "smart_240_raw": {
+        "root_cause": "Head flying hours / transfer performance attribute elevated relative to the fleet "
+                       "(exact meaning is vendor-dependent) — treat as a secondary wear indicator.",
+        "action": "Cross-check against other SMART attributes for this drive before acting; add to "
+                   "standard monitoring rotation.",
+    },
+    "smart_241_raw": {
+        "root_cause": "Total LBAs written is high relative to the fleet — the drive has processed a "
+                       "large cumulative write volume, contributing to wear over time.",
+        "action": "Add to the standard replacement rotation; not urgent on its own, but worth combining "
+                   "with other degradation signals.",
+    },
     "smart_5_raw": {
         "root_cause": "Reallocated sector count rising — the drive is remapping bad sectors to spare storage.",
         "action": "Schedule replacement within 7 days; increase SMART polling to daily in the meantime.",
@@ -101,6 +157,30 @@ def top_driver_per_row(shap_df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def merge_tiers_with_drivers(risk_tiers_path: str, drivers: pd.DataFrame) -> pd.DataFrame:
+    """Joins the full risk_tiers_test.csv (~144M rows) against the small
+    SHAP-sampled drivers table (a few thousand rows) via DuckDB, using an
+    INNER join -- we only ever want rows that HAVE a SHAP explanation, so
+    the result is bounded by drivers' size regardless of how large
+    risk_tiers_test.csv is. A pandas .merge() with risk_tiers as the left
+    side of a LEFT join would materialize all ~144M rows (mostly NaN) just
+    to filter them back down afterward -- the same oversized-merge pattern
+    that has caused memory crashes elsewhere in this pipeline."""
+    con = duckdb.connect()
+    con.register("drivers_view", drivers)
+    merged = con.execute(f"""
+        SELECT t.serial_number AS serial_number, t.date AS date, t.risk_tier AS risk_tier,
+               d.top_driver_raw AS top_driver_raw, d.top_driver_base AS top_driver_base,
+               d.top_driver_shap_value AS top_driver_shap_value,
+               d.top_driver_direction AS top_driver_direction
+        FROM read_csv_auto('{risk_tiers_path}') AS t
+        INNER JOIN drivers_view AS d
+            ON t.serial_number = d.serial_number AND t.date = d.date
+    """).fetchdf()
+    con.close()
+    return merged
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Map SHAP top drivers to root cause and mitigation actions")
     parser.add_argument("--risk_tiers", type=str, required=True)
@@ -108,18 +188,18 @@ def main() -> None:
     parser.add_argument("--out", type=str, default="results/mitigation_mapping.json")
     args = parser.parse_args()
 
-    tiers_df = pd.read_csv(args.risk_tiers)
     shap_df = pd.read_parquet(args.shap_values)
-
-    tiers_df["date"] = pd.to_datetime(tiers_df["date"])
     shap_df["date"] = pd.to_datetime(shap_df["date"])
 
     drivers = top_driver_per_row(shap_df)
-    merged = tiers_df.merge(drivers, on=["serial_number", "date"], how="left")
+    merged = merge_tiers_with_drivers(args.risk_tiers, drivers)
+    merged["date"] = pd.to_datetime(merged["date"])
 
     at_risk = merged[merged["risk_tier"].isin(["HIGH", "MEDIUM"])].copy()
     print(f"[MAPPING] {len(at_risk)} Medium/High risk rows to map "
-          f"(out of {len(merged)} total, {len(merged) - len(at_risk)} had no SHAP value available)")
+          f"(out of {len(merged)} rows that had a SHAP explanation available -- SHAP was computed "
+          f"on a {len(shap_df):,}-row sample, not the full test set, so this covers only that "
+          f"sample's Medium/High rows, not every at-risk drive in the fleet)")
 
     records = []
     for _, row in at_risk.iterrows():

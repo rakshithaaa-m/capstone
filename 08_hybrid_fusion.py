@@ -1,25 +1,32 @@
 """
-Stage 8 — Hybrid Fusion (LightGBM + LSTM)
+Stage 8 — Hybrid Fusion (LightGBM + LSTM), memory-safe version
 
-Combines the LightGBM failure-probability output (Stage 6) and the LSTM
-RUL estimate (Stage 7's full, unfiltered predictions) into a single
-blended risk score per drive. Tries two combination strategies and keeps
-whichever validates better, as planned:
+CHANGE FROM THE VERSION BEFORE THIS ONE: joining the two CSVs in DuckDB
+fixed the join itself, but .fetchdf() still pulled the ENTIRE joined
+result -- including the serial_number/date STRING columns, for up to
+~145M rows -- into a pandas DataFrame afterward. Materializing that many
+Python string objects is the same memory wall as before, just moved one
+step later (it crashed inside fetchdf(), not inside the join).
 
-  1. weighted  — a simple fixed-weight linear blend of the two normalized
-     signals (interpretable, no extra training).
-  2. meta      — a small logistic regression trained on [lgbm_prob,
-     lstm_rul_pred] -> failure_within_{horizon}d, letting the data decide
-     the combination weights.
+The fix here is to never bring serial_number/date into Python for the
+full-size files at all:
+    1. Fetch ONLY the small numeric columns (lgbm_prob, lstm_rul_pred,
+       target) as numpy arrays -- three float/int columns for ~145M rows
+       is ~1-2GB, trivial to hold in memory, and is all that's needed for
+       every score computation and metric below.
+    2. For the final output CSVs (which DO need serial_number/date, for
+       traceability and for Stage 9/12 downstream), have DuckDB compute
+       the hybrid score as a SQL expression and write the result
+       DIRECTLY TO DISK via `COPY ... TO`, entirely inside DuckDB's own
+       columnar engine. Python never holds the joined string columns for
+       the full dataset at any point.
 
 Usage:
     python3 08_hybrid_fusion.py \
-        --val data/processed/features_val.parquet \
-        --test data/processed/features_test.parquet \
-        --lgbm_model models/lgbm_model.txt \
-        --lgbm_threshold models/lgbm_threshold.json \
-        --lstm_model models/lstm_model.pt \
-        --lstm_config models/lstm_config.json \
+        --lgbm_val results/lgbm_val_probs.csv \
+        --lgbm_test results/lgbm_test_probs.csv \
+        --lstm_val results/lstm_full_val_preds.csv \
+        --lstm_test results/lstm_full_test_preds.csv \
         --target failure_within_14d \
         --out_dir models results
 """
@@ -27,99 +34,107 @@ import argparse
 import json
 from pathlib import Path
 
+import duckdb
 import joblib
-import lightgbm as lgb
 import numpy as np
-import pandas as pd
-import torch
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, roc_auc_score
 
-import sys
-sys.path.insert(0, str(Path(__file__).parent))
-from importlib import import_module
 
-lstm_module = import_module("07_train_lstm".replace("-", "_")) if False else None
+def fetch_numeric_columns(lgbm_path: str, lstm_path: str, target: str):
+    """Joins the two CSVs in DuckDB and fetches ONLY the numeric columns
+    needed for score computation -- never selects serial_number/date, so
+    there's no string-object memory cost regardless of row count."""
+    con = duckdb.connect()
+    query = f"""
+        SELECT l.lgbm_prob AS lgbm_prob, r.lstm_rul_pred AS lstm_rul_pred, l."{target}" AS target
+        FROM read_csv_auto('{lgbm_path}') AS l
+        INNER JOIN read_csv_auto('{lstm_path}') AS r
+            ON l.serial_number = r.serial_number AND l.date = r.date
+    """
+    result = con.execute(query).fetchnumpy()
+    con.close()
+    n = len(result["lgbm_prob"])
+    print(f"[JOIN] {lgbm_path} <-> {lstm_path}: {n:,} matched rows (numeric columns only)")
+    return result["lgbm_prob"], result["lstm_rul_pred"], result["target"].astype(np.int64)
 
 
-def load_lstm_module():
-    """Loads 07_train_lstm.py as a module so we can reuse its architecture
-    class and helper functions instead of duplicating them here."""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "lstm_stage7", Path(__file__).parent / "07_train_lstm.py"
+def export_hybrid_csv(lgbm_path: str, lstm_path: str, target: str, out_path: Path,
+                       weight_lgbm: float, horizon_days: float,
+                       strategy: str, meta_coef, meta_intercept) -> None:
+    """Writes serial_number, date, both candidate scores, the chosen
+    hybrid_score, and target DIRECTLY to a CSV on disk via DuckDB's SQL
+    engine -- no pandas DataFrame of the full joined result is ever
+    created. The weighted-blend formula and the meta-learner's fitted
+    logistic regression (just an intercept + 2 coefficients + sigmoid)
+    are both simple enough to express directly in SQL."""
+    weighted_expr = (
+        f"({weight_lgbm}*l.lgbm_prob + (1-{weight_lgbm})*"
+        f"GREATEST(0.0, LEAST(1.0, ({horizon_days}-r.lstm_rul_pred)/{horizon_days})))"
     )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    if strategy == "meta" and meta_coef is not None:
+        meta_expr = (
+            f"(1.0 / (1.0 + EXP(-({meta_intercept} + {meta_coef[0]}*l.lgbm_prob "
+            f"+ {meta_coef[1]}*r.lstm_rul_pred))))"
+        )
+        chosen_expr = meta_expr
+    else:
+        meta_expr = "NULL"
+        chosen_expr = weighted_expr
 
-
-def get_lstm_predictions(mod, df: pd.DataFrame, model_path: str, config_path: str, device: str) -> np.ndarray:
-    with open(config_path) as f:
-        config = json.load(f)
-    feature_cols = config["feature_cols"]
-    feat_mean = pd.Series(config["feat_mean"])
-    feat_std = pd.Series(config["feat_std"])
-
-    model = mod.AttentionLSTM(n_features=len(feature_cols), hidden_size=config["hidden_size"])
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.to(device)
-
-    df_norm = df.copy()
-    df_norm[feature_cols] = (df_norm[feature_cols] - feat_mean) / feat_std
-    df_norm[feature_cols] = df_norm[feature_cols].fillna(0.0)
-
-    X, _ = mod.build_sequences(df_norm.assign(rul_days=0.0), feature_cols, config["lookback"])
-    loader = torch.utils.data.DataLoader(
-        mod.RULDataset(X, np.zeros(len(X), dtype=np.float32)), batch_size=128, shuffle=False,
-    )
-    _, preds = mod.evaluate_rmse_mae(model, loader, device)
-    return preds
-
-
-def normalize_signal(x: np.ndarray) -> np.ndarray:
-    """Min-max to [0, 1]. Kept for reference/backward compatibility but NOT
-    used for the RUL signal anymore — see horizon_bounded_risk() below."""
-    lo, hi = np.min(x), np.max(x)
-    if hi - lo < 1e-9:
-        return np.zeros_like(x)
-    return (x - lo) / (hi - lo)
+    con = duckdb.connect()
+    query = f"""
+        COPY (
+            SELECT
+                l.serial_number AS serial_number,
+                l.date AS date,
+                l.lgbm_prob AS lgbm_prob,
+                r.lstm_rul_pred AS lstm_rul_pred,
+                {weighted_expr} AS hybrid_weighted,
+                {meta_expr} AS hybrid_meta,
+                {chosen_expr} AS hybrid_score,
+                l."{target}" AS target
+            FROM read_csv_auto('{lgbm_path}') AS l
+            INNER JOIN read_csv_auto('{lstm_path}') AS r
+                ON l.serial_number = r.serial_number AND l.date = r.date
+        ) TO '{out_path.as_posix()}' (HEADER, DELIMITER ',')
+    """
+    con.execute(query)
+    con.close()
 
 
 def horizon_bounded_risk(rul: np.ndarray, horizon_days: float) -> np.ndarray:
     """Converts RUL into a [0, 1] urgency score tied to the actual
     operational decision horizon, instead of a dataset-dependent min/max.
-    This deliberately avoids the earlier bug (fitting min/max separately
-    on val and test, producing two different scales) by using a fixed
-    formula that needs no fitting at all: RUL >= horizon -> 0 urgency,
-    RUL <= 0 -> 1 (maximum urgency), linear in between. A 500-day RUL and
-    a 50-day RUL are both just 'not urgent' (0), rather than a huge raw
-    RUL value dominating the scale the way plain min-max scaling would let
-    it."""
+    RUL >= horizon -> 0 urgency, RUL <= 0 -> 1 (max urgency), linear
+    between. Needs no fitting, so val and test share the exact same scale."""
     return np.clip((horizon_days - rul) / horizon_days, 0.0, 1.0)
 
 
 def weighted_blend(lgbm_prob: np.ndarray, lstm_rul: np.ndarray, horizon_days: float,
                     weight_lgbm: float = 0.6) -> np.ndarray:
-    """lgbm_prob is already a valid [0,1] probability — no rescaling needed
-    or wanted. lstm_rul is converted via the fixed, horizon-bounded
-    transform above, which needs no per-split fitting, sidestepping the
-    val/test normalization mismatch entirely rather than just patching it."""
     risk_from_lgbm = lgbm_prob
     risk_from_lstm = horizon_bounded_risk(lstm_rul, horizon_days)
     return weight_lgbm * risk_from_lgbm + (1 - weight_lgbm) * risk_from_lstm
 
 
+def safe_auprc(y, p):
+    return average_precision_score(y, p) if y.sum() > 0 else float("nan")
+
+
+def safe_auc(y, p):
+    return roc_auc_score(y, p) if y.sum() > 0 else float("nan")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fuse LightGBM and LSTM outputs into a hybrid risk score")
-    parser.add_argument("--val", type=str, required=True)
-    parser.add_argument("--test", type=str, required=True)
-    parser.add_argument("--lgbm_model", type=str, required=True)
-    parser.add_argument("--lgbm_threshold", type=str, required=True)
-    parser.add_argument("--lstm_model", type=str, required=True)
-    parser.add_argument("--lstm_config", type=str, required=True)
+    parser.add_argument("--lgbm_val", type=str, required=True)
+    parser.add_argument("--lgbm_test", type=str, required=True)
+    parser.add_argument("--lstm_val", type=str, required=True)
+    parser.add_argument("--lstm_test", type=str, required=True)
     parser.add_argument("--target", type=str, default="failure_within_14d")
     parser.add_argument("--horizon_days", type=float, default=14.0)
+    parser.add_argument("--weight_lgbm", type=float, default=0.6)
     parser.add_argument("--out_dir", nargs=2, default=["models", "results"], metavar=("MODELS_DIR", "RESULTS_DIR"))
     args = parser.parse_args()
 
@@ -127,49 +142,25 @@ def main() -> None:
     models_dir.mkdir(parents=True, exist_ok=True)
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    lstm_mod = load_lstm_module()
-
-    with open(args.lgbm_threshold) as f:
-        lgbm_meta = json.load(f)
-    feature_cols = lgbm_meta["feature_cols"]
-
-    booster = lgb.Booster(model_file=args.lgbm_model)
-
-    val_df = pd.read_parquet(args.val)
-    test_df = pd.read_parquet(args.test)
-
-    val_lgbm_prob = booster.predict(val_df[feature_cols])
-    test_lgbm_prob = booster.predict(test_df[feature_cols])
-
-    print("[LSTM] running inference for fusion inputs...")
-    val_lstm_rul = get_lstm_predictions(lstm_mod, val_df, args.lstm_model, args.lstm_config, device)
-    test_lstm_rul = get_lstm_predictions(lstm_mod, test_df, args.lstm_model, args.lstm_config, device)
-
-    y_val = val_df[args.target].values
-    y_test = test_df[args.target].values
+    print("[LOAD] Joining Stage 6 (lgbm) and Stage 7 (lstm) outputs on (serial_number, date)...")
+    val_lgbm_prob, val_lstm_rul, y_val = fetch_numeric_columns(args.lgbm_val, args.lstm_val, args.target)
+    test_lgbm_prob, test_lstm_rul, y_test = fetch_numeric_columns(args.lgbm_test, args.lstm_test, args.target)
 
     # Strategy 1: weighted blend (no fitting, so no leakage question at all)
-    val_weighted = weighted_blend(val_lgbm_prob, val_lstm_rul, args.horizon_days)
-    test_weighted = weighted_blend(test_lgbm_prob, test_lstm_rul, args.horizon_days)
+    val_weighted = weighted_blend(val_lgbm_prob, val_lstm_rul, args.horizon_days, args.weight_lgbm)
+    test_weighted = weighted_blend(test_lgbm_prob, test_lstm_rul, args.horizon_days, args.weight_lgbm)
 
-    # Strategy 2: meta-learner. To select between strategies fairly, we
-    # need a GENUINE held-out estimate of the meta-learner's performance —
-    # training and evaluating it on the exact same validation rows (the
-    # earlier version's bug) lets it look artificially good purely by
-    # memorizing validation. Fix: split validation itself into a fit half
-    # (trains the meta-learner) and a select half (the ONLY rows whose
-    # AUPRC is used for the weighted-vs-meta decision). The final model
-    # used on test is then refit on the FULL validation set — standard
-    # practice: use a held-out split to pick a strategy, then refit on all
-    # available data once picked.
+    # Strategy 2: meta-learner, selected via a genuine held-out half of
+    # validation (fit half trains it, select half is the ONLY data whose
+    # AUPRC decides weighted-vs-meta), then refit on the full validation
+    # set for the model actually used on test.
     meta_X_val_full = np.column_stack([val_lgbm_prob, val_lstm_rul])
     meta_model = None
     val_meta_select_auprc = -1.0
     val_meta = np.zeros_like(val_weighted)
     test_meta = np.zeros_like(test_weighted)
 
-    can_split = y_val.sum() >= 4 and len(np.unique(y_val)) > 1  # need enough positives in BOTH halves
+    can_split = y_val.sum() >= 4 and len(np.unique(y_val)) > 1
     if can_split:
         from sklearn.model_selection import train_test_split
         idx_fit, idx_select = train_test_split(
@@ -181,27 +172,18 @@ def main() -> None:
         if y_val[idx_select].sum() > 0:
             val_meta_select_auprc = average_precision_score(y_val[idx_select], select_preds)
 
-        # Refit on the FULL validation set for the model actually used on test
         meta_model = LogisticRegression(class_weight="balanced")
         meta_model.fit(meta_X_val_full, y_val)
         val_meta = meta_model.predict_proba(meta_X_val_full)[:, 1]
         test_meta = meta_model.predict_proba(np.column_stack([test_lgbm_prob, test_lstm_rul]))[:, 1]
     else:
         print("WARNING: validation set doesn't have enough positives to hold out a genuine "
-              "fit/select split for the meta-learner — skipping the meta strategy entirely "
+              "fit/select split for the meta-learner -- skipping the meta strategy entirely "
               "rather than risk a leaked, artificially inflated selection. Using weighted blend.")
 
-    def safe_auprc(y, p):
-        return average_precision_score(y, p) if y.sum() > 0 else float("nan")
-
-    def safe_auc(y, p):
-        return roc_auc_score(y, p) if y.sum() > 0 else float("nan")
-
     weighted_val_auprc = safe_auprc(y_val, val_weighted)
-
     chosen_strategy = "meta" if (meta_model is not None and val_meta_select_auprc > weighted_val_auprc) else "weighted"
     test_hybrid_score = test_meta if chosen_strategy == "meta" else test_weighted
-    val_hybrid_score = val_meta if chosen_strategy == "meta" else val_weighted
 
     print(f"[COMPARE] weighted-blend val AUPRC (full val):        {weighted_val_auprc:.4f}")
     print(f"[COMPARE] meta-learner val AUPRC (held-out half only): "
@@ -216,18 +198,31 @@ def main() -> None:
     }
     print(f"[TEST] hybrid AUPRC={metrics['test_auprc']:.4f}  ROC-AUC={metrics['test_roc_auc']:.4f}")
 
+    meta_coef = meta_intercept = None
     if meta_model is not None:
         joblib.dump(meta_model, models_dir / "hybrid_meta_model.pkl")
+        meta_coef = meta_model.coef_[0].tolist()
+        meta_intercept = float(meta_model.intercept_[0])
     with open(models_dir / "hybrid_config.json", "w") as f:
-        json.dump({"chosen_strategy": chosen_strategy, "weight_lgbm": 0.6, "horizon_days": args.horizon_days}, f, indent=2)
+        json.dump({
+            "chosen_strategy": chosen_strategy, "weight_lgbm": args.weight_lgbm,
+            "horizon_days": args.horizon_days,
+            "meta_coef": meta_coef, "meta_intercept": meta_intercept,
+        }, f, indent=2)
 
-    pd.DataFrame({
-        "lgbm_prob": test_lgbm_prob, "lstm_rul_pred": test_lstm_rul,
-        "hybrid_weighted": test_weighted, "hybrid_meta": test_meta,
-        "hybrid_score": test_hybrid_score, "target": y_test,
-    }).to_csv(results_dir / "hybrid_test_scores.csv", index=False)
+    # Write the final CSVs directly via DuckDB (no pandas involved for the
+    # full string-laden result) -- this is the step that used to crash.
+    print("[WRITE] Exporting val scores directly to CSV via DuckDB...")
+    export_hybrid_csv(args.lgbm_val, args.lstm_val, args.target, results_dir / "hybrid_val_scores.csv",
+                       args.weight_lgbm, args.horizon_days, chosen_strategy, meta_coef, meta_intercept)
+    print("[WRITE] Exporting test scores directly to CSV via DuckDB...")
+    export_hybrid_csv(args.lgbm_test, args.lstm_test, args.target, results_dir / "hybrid_test_scores.csv",
+                       args.weight_lgbm, args.horizon_days, chosen_strategy, meta_coef, meta_intercept)
+
+    import pandas as pd
     pd.DataFrame([metrics]).to_csv(results_dir / "hybrid_metrics.csv", index=False)
 
+    print(f"[SAVE] {results_dir/'hybrid_val_scores.csv'}")
     print(f"[SAVE] {results_dir/'hybrid_test_scores.csv'}")
     print(f"[SAVE] {results_dir/'hybrid_metrics.csv'}")
     print(f"[SAVE] {models_dir/'hybrid_config.json'}")

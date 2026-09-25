@@ -1,57 +1,71 @@
 """
-Stage 6 — LightGBM Classifier (MEMORY-SAFE, STREAMED VAL/TEST)
+Stage 6 — LightGBM Classifier (TWO-MODE, PROCESS-ISOLATED)
 
-Trains a LightGBM binary classifier on the resampled training set,
-predicting `failure_within_{horizon}d`. Tunes hyperparameters with Optuna
-optimizing AUPRC, then selects the final decision threshold by minimizing
-expected cost on the VALIDATION set (never on test) using the cost matrix
-from Stage 5.
+CHANGE IN THIS VERSION vs. the last one you ran:
 
-The original version called pd.read_parquet() on val (52.8M rows) and test
-(144.7M rows) in full. With ~226 mostly-float64 columns per row, either of
-those loaded whole is on the order of 100-250+ GB in memory -- not
-"tight", but categorically impossible on laptop-class hardware regardless
-of what else is closed. This version NEVER loads val or test as a full
-feature table:
+1. Added a bitness check printed at startup. Run `--mode predict` once and
+   look at the very first line of output. If it says "32-bit interpreter"
+   STOP and fix that first — nothing below will reliably help if so, since
+   a 32-bit process is capped at ~2-4GB of address space regardless of how
+   much physical RAM is free. That symptom (small, routine allocations
+   failing at a consistent row count, unaffected by chunk size or dtype
+   changes) is exactly what a 32-bit process looks like from the outside.
 
-  - TRAIN (resampled, ~31.6M rows) is loaded once, in full -- this is the
-    one dataset Stage 5 deliberately shrank to be laptop-sized.
-  - VAL and TEST are streamed in row-chunks for prediction. A trained
-    model only needs one small chunk of raw features in memory at a time
-    to produce predictions; the output (one probability per row) is tiny
-    even for 144M rows, so only that small array is ever kept in full.
+2. stream_predict_booster no longer builds growing Python lists of every
+   chunk's probs/labels and concatenates them at the end. That pattern
+   holds ALL completed chunks in memory simultaneously with whatever chunk
+   is currently mid-flight, and then needs a second full-size allocation
+   for the final concatenate — real, avoidable peak-memory overhead. This
+   version pre-allocates one fixed-size float32/int8 output array up front
+   (size known from parquet metadata) and fills it slice-by-slice instead.
+   No growing list, no final concatenate, ~4x smaller footprint per row
+   than the old float64 probs + int64 labels lists.
 
-One documented tradeoff for speed: Optuna's hyperparameter search needs a
-validation score on EVERY trial (default 30). Streaming the full 52.8M-row
-validation file 30 times would be very slow. So tuning uses a fixed
-~5M-row representative SAMPLE of validation (drawn once, kept in memory,
-reused across all trials) purely to compare hyperparameter candidates
-quickly. This sample is safe to use for relative comparison between
-configs -- it is NOT used for anything reported as a final number. The
-FINAL cost-optimal threshold selection and the FINAL test evaluation both
-stream the complete, real, unsampled val/test data exactly once each,
-so nothing reported as a result is based on a subsample.
+   This alone will not fix a genuine 32-bit address-space cap — check (1)
+   first. But it removes a real source of unnecessary memory pressure
+   either way, and is simpler than the resumable/checkpointing version
+   from the last attempt, which added complexity without addressing either
+   of the two things above.
 
-Usage:
-    python3 06_train_lightgbm.py \
+Usage unchanged — two separate command invocations:
+
+    python 06_train_lightgbm.py --mode train \
         --train data/processed/train_resampled.parquet \
+        --val data/processed/features_val.parquet \
+        --target failure_within_14d \
+        --n_trials 30 \
+        --out_dir models results
+
+    python 06_train_lightgbm.py --mode predict \
         --val data/processed/features_val.parquet \
         --test data/processed/features_test.parquet \
         --cost_matrix data/processed/cost_matrix.json \
         --target failure_within_14d \
-        --n_trials 30 \
         --out_dir models results
 """
 import argparse
 import gc
 import json
+import struct
+import sys
 from pathlib import Path
 
 import lightgbm as lgb
 import numpy as np
 import optuna
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
+
+try:
+    import psutil
+    _PROCESS = psutil.Process()
+except ImportError:
+    _PROCESS = None
+    print("[ENV] psutil not installed -- RSS memory logging disabled. "
+          "Run 'pip install psutil --break-system-packages' (or just 'pip install psutil' "
+          "on Windows) to enable it -- it's the fastest way to see whether memory is "
+          "actually growing chunk over chunk, instead of guessing.")
 from sklearn.metrics import (
     average_precision_score, confusion_matrix, f1_score,
     precision_score, recall_score, roc_auc_score,
@@ -59,25 +73,65 @@ from sklearn.metrics import (
 
 NON_FEATURE_COLS = [
     "date", "serial_number", "model", "capacity_bytes",
-    "failure", "rul_days", "is_censored",
-    "datacenter",  # text label, not encoded -- excluded rather than mishandled
+    "failure", "rul_days", "is_censored", "datacenter",
 ]
-ROW_CHUNK_SIZE = 200_000
-VAL_TUNING_SAMPLE_ROWS = 5_000_000  # size of the fixed sample used ONLY
-                                     # for Optuna's repeated trials, not
-                                     # for any final reported number.
+ROW_CHUNK_SIZE = 500_000
+PREDICT_CHUNK_SIZE = 200_000
+VAL_TUNING_SAMPLE_ROWS = 5_000_000  # fixed sample used ONLY for Optuna's
+                                     # repeated trials, never for any final
+                                     # reported number.
+
+
+def print_environment_diagnostics() -> None:
+    bits = struct.calcsize("P") * 8
+    print(f"[ENV] Python interpreter: {bits}-bit ({sys.executable})")
+    if bits == 32:
+        print("[ENV] *** WARNING: 32-bit interpreter detected. ***")
+        print("[ENV] This caps process address space at ~2-4GB regardless of free")
+        print("[ENV] system RAM, and produces exactly the symptom you've been seeing:")
+        print("[ENV] small, routine allocations failing at a consistent row count.")
+        print("[ENV] Fix: rebuild this venv from a 64-bit Python before continuing.")
+    try:
+        import lightgbm
+        print(f"[ENV] lightgbm version: {lightgbm.__version__}")
+    except Exception:
+        pass
+    print(f"[ENV] pyarrow version: {pa.__version__}")
+
+
+def log_memory(tag: str) -> None:
+    """Prints real process RSS (if psutil is available) and PyArrow's
+    internal memory pool usage. PyArrow keeps its own C++ allocator pool
+    and does not always release freed memory back to the OS immediately --
+    if 'pyarrow pool' climbs steadily across chunks while row count grows,
+    that -- not Python-level fragmentation -- is very likely the real
+    cause of allocation failures at a consistent row count regardless of
+    chunk size."""
+    parts = [tag]
+    if _PROCESS is not None:
+        rss_mb = _PROCESS.memory_info().rss / 1024**2
+        parts.append(f"RSS={rss_mb:,.0f}MB")
+    pool_mb = pa.total_allocated_bytes() / 1024**2
+    parts.append(f"pyarrow_pool={pool_mb:,.0f}MB")
+    print("[MEM] " + " | ".join(parts))
+
+
+def coerce_legacy_format(df: pd.DataFrame) -> pd.DataFrame:
+    """is_legacy_format is a real boolean signal, not junk -- coerce to int
+    rather than excluding it. fillna(False) first so astype never fails on
+    a null (treats "unknown" as "not legacy", the more common case)."""
+    if "is_legacy_format" in df.columns and not pd.api.types.is_numeric_dtype(df["is_legacy_format"]):
+        df["is_legacy_format"] = df["is_legacy_format"].fillna(False).astype(int)
+    return df
 
 
 def get_feature_cols(df: pd.DataFrame, target: str) -> list[str]:
-    # is_legacy_format is a real, informative True/False flag -- convert it
-    # to 0/1 in place so it's usable as a feature, rather than excluding a
-    # column that might actually carry signal.
-    if "is_legacy_format" in df.columns and not pd.api.types.is_numeric_dtype(df["is_legacy_format"]):
-        df["is_legacy_format"] = df["is_legacy_format"].astype(bool).astype("int8")
-
     exclude = set(NON_FEATURE_COLS) | {target}
     exclude |= {c for c in df.columns if c.startswith("failure_within_") and c != target}
     cols = [c for c in df.columns if c not in exclude]
+
+    df = coerce_legacy_format(df)
+
     non_numeric = [c for c in cols if not pd.api.types.is_numeric_dtype(df[c])]
     if non_numeric:
         raise ValueError(f"Non-numeric feature columns found, exclude or encode them: {non_numeric}")
@@ -85,8 +139,6 @@ def get_feature_cols(df: pd.DataFrame, target: str) -> list[str]:
 
 
 def downcast_floats(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
-    """float64 -> float32 halves memory footprint with negligible precision
-    loss for gradient-boosted trees. Applied on every chunk read."""
     float_cols = [c for c in cols if pd.api.types.is_float_dtype(df[c])]
     if float_cols:
         df[float_cols] = df[float_cols].astype("float32")
@@ -94,13 +146,6 @@ def downcast_floats(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
 
 
 def load_train_chunked(path: Path, target: str) -> tuple[pd.DataFrame, list[str]]:
-    """Reads the resampled training set in chunks, downcasting each chunk
-    to float32 immediately -- never holding a full float64 copy of all
-    31.6M rows at once, even momentarily. The earlier version's single
-    pd.read_parquet() call loaded everything as float64 BEFORE any
-    downcasting could help, which is what actually caused the silent
-    OOM kill (Windows terminates the process outright with no traceback,
-    rather than raising a catchable Python error)."""
     parquet_file = pq.ParquetFile(path)
     feature_cols = None
     chunks = []
@@ -109,37 +154,27 @@ def load_train_chunked(path: Path, target: str) -> tuple[pd.DataFrame, list[str]
         df = batch.to_pandas()
         if feature_cols is None:
             feature_cols = get_feature_cols(df, target)
+        else:
+            df = coerce_legacy_format(df)
         df = downcast_floats(df, feature_cols)
         chunks.append(df[feature_cols + [target]])
         rows_so_far += len(df)
-        del df
-        if len(chunks) % 5 == 0:
-            gc.collect()
         if rows_so_far % (ROW_CHUNK_SIZE * 10) == 0:
             print(f"[LOAD] {rows_so_far:,} training rows read so far...")
     print(f"[LOAD] Concatenating {rows_so_far:,} already-downcasted rows...")
-    gc.collect()
     full = pd.concat(chunks, ignore_index=True)
     del chunks
-    gc.collect()
     return full, feature_cols
 
 
 def load_val_tuning_sample(path: Path, feature_cols: list[str], target: str,
                             max_rows: int) -> tuple[pd.DataFrame, pd.Series]:
-    """Reads a fixed-size PREFIX of validation (first ~max_rows rows) once,
-    kept in memory for the whole Optuna run. Val was written by Stage 4 in
-    batch order, and Stage 3's batch assignment was a hash of serial_number
-    -- i.e. each batch is a random subset of drives, not a date-ordered or
-    otherwise biased slice. So a prefix of a few batches' worth of rows is
-    a reasonable representative sample of drives for comparing hyperparameter
-    candidates, without needing a full extra pass to build a proper random
-    sample. This is only for tuning speed -- see module docstring."""
     parquet_file = pq.ParquetFile(path)
     chunks = []
     rows_so_far = 0
     for batch in parquet_file.iter_batches(batch_size=ROW_CHUNK_SIZE, columns=feature_cols + [target]):
         df = batch.to_pandas()
+        df = coerce_legacy_format(df)
         df = downcast_floats(df, feature_cols)
         chunks.append(df)
         rows_so_far += len(df)
@@ -150,22 +185,51 @@ def load_val_tuning_sample(path: Path, feature_cols: list[str], target: str,
     return sample[feature_cols], sample[target]
 
 
-def stream_predict(model, path: Path, feature_cols: list[str], target: str) -> tuple[np.ndarray, np.ndarray]:
-    """Streams a parquet file in chunks, predicting on each small chunk in
-    turn. Only the resulting (small) probability and label arrays are kept
-    for the whole file -- the raw feature chunks are discarded immediately
-    after each prediction."""
+def stream_predict_booster(booster: lgb.Booster, path: Path, feature_cols: list[str],
+                            target: str) -> tuple[np.ndarray, np.ndarray]:
+    """Pre-allocates the full output arrays up front (size known from parquet
+    metadata) instead of accumulating a growing list of per-chunk arrays and
+    concatenating at the end. This avoids holding every completed chunk's
+    result in memory simultaneously with the chunk currently being computed,
+    and avoids a second full-size allocation for a final concatenate.
+    Probs stored as float32 and labels as int8 -- both are exact for this
+    use case (probabilities and binary 0/1 labels) and use a quarter to an
+    eighth of the memory of the previous float64/int64 lists.
+    """
+    total_rows = pq.ParquetFile(path).metadata.num_rows
+    out_probs = np.empty(total_rows, dtype="float32")
+    out_labels = np.empty(total_rows, dtype="int8")
+    out_serials = np.empty(total_rows, dtype=object)
+    out_dates = np.empty(total_rows, dtype=object)
+
+    read_cols = feature_cols + [target, "serial_number", "date"]
     parquet_file = pq.ParquetFile(path)
-    all_probs = []
-    all_labels = []
-    for batch in parquet_file.iter_batches(batch_size=ROW_CHUNK_SIZE, columns=feature_cols + [target]):
+    pos = 0
+    n_chunks = 0
+    log_memory("baseline before streaming")
+    for batch in parquet_file.iter_batches(batch_size=PREDICT_CHUNK_SIZE, columns=read_cols):
         df = batch.to_pandas()
-        df = downcast_floats(df, feature_cols)
-        probs = model.predict_proba(df[feature_cols])[:, 1]
-        all_probs.append(probs)
-        all_labels.append(df[target].to_numpy())
-        del df, probs
-    return np.concatenate(all_labels), np.concatenate(all_probs)
+        df = coerce_legacy_format(df)
+        X = df[feature_cols].astype("float32")
+        probs = booster.predict(X)
+        n = len(df)
+
+        out_probs[pos:pos + n] = probs
+        out_labels[pos:pos + n] = df[target].to_numpy()
+        out_serials[pos:pos + n] = df["serial_number"].to_numpy()
+        out_dates[pos:pos + n] = df["date"].to_numpy()
+        pos += n
+
+        del df, X, probs
+        n_chunks += 1
+        if n_chunks % 20 == 0:
+            print(f"[STREAM] {n_chunks} chunk(s) / {pos:,} rows processed so far...")
+            log_memory(f"chunk {n_chunks}")
+            gc.collect()
+
+    # pos should equal total_rows, but slice defensively in case parquet
+    # metadata and actual row count ever disagree
+    return out_labels[:pos], out_probs[:pos], out_serials[:pos], out_dates[:pos]
 
 
 def tune_with_optuna(X_train, y_train, X_val_sample, y_val_sample, n_trials: int, seed: int = 42) -> dict:
@@ -190,10 +254,11 @@ def tune_with_optuna(X_train, y_train, X_val_sample, y_val_sample, n_trials: int
         preds = model.predict_proba(X_val_sample)[:, 1]
         if y_val_sample.sum() == 0:
             raise ValueError(
-                "Validation sample has zero positive examples — cannot tune AUPRC. "
-                "This shouldn't happen given the sample size relative to the known "
-                "validation positive rate; check VAL_TUNING_SAMPLE_ROWS."
+                "Validation sample has zero positive examples -- cannot tune AUPRC. "
+                "Check VAL_TUNING_SAMPLE_ROWS relative to the known validation positive rate."
             )
+        del model
+        gc.collect()
         return average_precision_score(y_val_sample, preds)
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -229,27 +294,13 @@ def evaluate(y_true, probs, threshold: float) -> dict:
     }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Train and evaluate the LightGBM classifier (streamed val/test)")
-    parser.add_argument("--train", type=str, required=True, help="Resampled training set from Stage 5")
-    parser.add_argument("--val", type=str, required=True)
-    parser.add_argument("--test", type=str, required=True)
-    parser.add_argument("--cost_matrix", type=str, required=True)
-    parser.add_argument("--target", type=str, default="failure_within_14d")
-    parser.add_argument("--n_trials", type=int, default=30)
-    parser.add_argument("--out_dir", nargs=2, default=["models", "results"], metavar=("MODELS_DIR", "RESULTS_DIR"))
-    args = parser.parse_args()
-
+def run_train_mode(args) -> None:
     models_dir, results_dir = Path(args.out_dir[0]), Path(args.out_dir[1])
     models_dir.mkdir(parents=True, exist_ok=True)
     results_dir.mkdir(parents=True, exist_ok=True)
 
     print("[LOAD] Reading resampled training set (chunked, downcast to float32 as it goes)...")
     train_df, feature_cols = load_train_chunked(Path(args.train), args.target)
-
-    with open(args.cost_matrix) as f:
-        cost_matrix = json.load(f)
-
     print(f"Using {len(feature_cols)} feature columns")
 
     X_train, y_train = train_df[feature_cols], train_df[args.target]
@@ -262,37 +313,113 @@ def main() -> None:
     print(f"[OPTUNA] Running {args.n_trials} trials optimizing AUPRC on the validation sample...")
     best_params = tune_with_optuna(X_train, y_train, X_val_sample, y_val_sample, n_trials=args.n_trials)
     print(f"[OPTUNA] Best params: {best_params}")
-    del X_val_sample, y_val_sample  # done with the sample, free it before the full streaming passes
+    del X_val_sample, y_val_sample
+    gc.collect()
 
     final_params = {**best_params, "objective": "binary", "metric": "average_precision", "verbosity": -1, "random_state": 42}
     model = lgb.LGBMClassifier(**final_params)
     model.fit(X_train, y_train)
-    del train_df, X_train, y_train  # free training data before the streaming val/test passes
+    del train_df, X_train, y_train
+    gc.collect()
+
+    model.booster_.save_model(str(models_dir / "lgbm_model.txt"))
+    with open(models_dir / "lgbm_feature_cols.json", "w") as f:
+        json.dump({"feature_cols": feature_cols, "target": args.target}, f, indent=2)
+    with open(models_dir / "lgbm_best_params.json", "w") as f:
+        json.dump(best_params, f, indent=2)
+
+    print(f"\n[DONE -- TRAIN MODE] Model trained and saved.")
+    print(f"[SAVE] {models_dir/'lgbm_model.txt'}")
+    print(f"[SAVE] {models_dir/'lgbm_feature_cols.json'}")
+    print(f"       Close this window and run --mode predict as a separate, fresh command.")
+
+
+def run_predict_mode(args) -> None:
+    models_dir, results_dir = Path(args.out_dir[0]), Path(args.out_dir[1])
+    models_dir.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    feature_cols_path = models_dir / "lgbm_feature_cols.json"
+    if not feature_cols_path.exists():
+        raise FileNotFoundError(
+            f"{feature_cols_path} not found -- run --mode train first, as a separate command."
+        )
+    with open(feature_cols_path) as f:
+        meta = json.load(f)
+    feature_cols = meta["feature_cols"]
+    target = meta.get("target", args.target)
+
+    with open(args.cost_matrix) as f:
+        cost_matrix = json.load(f)
+
+    print("[LOAD] Loading trained model from disk (fresh process, no training history)...")
+    booster = lgb.Booster(model_file=str(models_dir / "lgbm_model.txt"))
 
     print("[STREAM] Predicting on FULL validation set (chunked) for threshold selection...")
-    y_val_full, val_probs_full = stream_predict(model, Path(args.val), feature_cols, args.target)
+    y_val_full, val_probs_full, val_serials, val_dates = stream_predict_booster(
+        booster, Path(args.val), feature_cols, target
+    )
     threshold = select_cost_optimal_threshold(
         y_val_full, val_probs_full, cost_matrix["false_negative_cost"], cost_matrix["false_positive_cost"]
     )
     print(f"[THRESHOLD] Cost-optimal threshold on FULL validation: {threshold:.3f}")
-    del y_val_full, val_probs_full
+    # Saved WITH keys (serial_number, date) and target -- Stage 8 needs val
+    # probs (not just test) to fit/select its meta-learner, and needs a
+    # reliable join key rather than assuming row order matches the LSTM's
+    # full-fleet output, which is chunked/sorted differently.
+    pd.DataFrame({
+        "serial_number": val_serials, "date": val_dates,
+        "lgbm_prob": val_probs_full, target: y_val_full,
+    }).to_csv(results_dir / "lgbm_val_probs.csv", index=False)
+    del y_val_full, val_probs_full, val_serials, val_dates
+    gc.collect()
 
     print("[STREAM] Predicting on FULL test set (chunked) for final evaluation...")
-    y_test_full, test_probs_full = stream_predict(model, Path(args.test), feature_cols, args.target)
+    y_test_full, test_probs_full, test_serials, test_dates = stream_predict_booster(
+        booster, Path(args.test), feature_cols, target
+    )
     metrics = evaluate(y_test_full, test_probs_full, threshold)
     print("[TEST METRICS]")
     for k, v in metrics.items():
         print(f"  {k}: {v}")
 
-    model.booster_.save_model(str(models_dir / "lgbm_model.txt"))
     with open(models_dir / "lgbm_threshold.json", "w") as f:
-        json.dump({"threshold": threshold, "target": args.target, "feature_cols": feature_cols}, f, indent=2)
-    pd.Series(test_probs_full, name="lgbm_prob").to_csv(results_dir / "lgbm_test_probs.csv", index=False)
+        json.dump({"threshold": threshold, "target": target, "feature_cols": feature_cols}, f, indent=2)
+    pd.DataFrame({
+        "serial_number": test_serials, "date": test_dates,
+        "lgbm_prob": test_probs_full, target: y_test_full,
+    }).to_csv(results_dir / "lgbm_test_probs.csv", index=False)
     pd.DataFrame([metrics]).to_csv(results_dir / "lgbm_metrics.csv", index=False)
 
-    print(f"[SAVE] {models_dir/'lgbm_model.txt'}")
+    print(f"\n[DONE -- PREDICT MODE]")
     print(f"[SAVE] {models_dir/'lgbm_threshold.json'}")
+    print(f"[SAVE] {results_dir/'lgbm_val_probs.csv'}")
+    print(f"[SAVE] {results_dir/'lgbm_test_probs.csv'}")
     print(f"[SAVE] {results_dir/'lgbm_metrics.csv'}")
+
+
+def main() -> None:
+    print_environment_diagnostics()
+
+    parser = argparse.ArgumentParser(description="Stage 6 -- two-mode, process-isolated LightGBM training/prediction")
+    parser.add_argument("--mode", type=str, required=True, choices=["train", "predict"])
+    parser.add_argument("--train", type=str, help="Required for --mode train")
+    parser.add_argument("--val", type=str, required=True)
+    parser.add_argument("--test", type=str, help="Required for --mode predict")
+    parser.add_argument("--cost_matrix", type=str, help="Required for --mode predict")
+    parser.add_argument("--target", type=str, default="failure_within_14d")
+    parser.add_argument("--n_trials", type=int, default=30)
+    parser.add_argument("--out_dir", nargs=2, default=["models", "results"], metavar=("MODELS_DIR", "RESULTS_DIR"))
+    args = parser.parse_args()
+
+    if args.mode == "train":
+        if not args.train:
+            parser.error("--train is required for --mode train")
+        run_train_mode(args)
+    else:
+        if not args.test or not args.cost_matrix:
+            parser.error("--test and --cost_matrix are required for --mode predict")
+        run_predict_mode(args)
 
 
 if __name__ == "__main__":

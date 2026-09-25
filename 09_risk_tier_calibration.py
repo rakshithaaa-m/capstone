@@ -1,23 +1,36 @@
 """
-Stage 9 — Risk-Tier Calibration
+Stage 9 — Risk-Tier Calibration, memory-safe version
+
+CHANGE FROM THE PREVIOUS VERSION: this script no longer reloads the LGBM
+and LSTM models or recomputes any predictions. The previous version
+called pd.read_parquet() on the FULL val/test files and re-ran LSTM
+inference on the entire fleet from scratch -- exactly the pattern that
+caused OOM crashes earlier in Stages 6-8, reintroduced here. It also
+loaded "07_train_lstm.py" (the old, pre-rewrite script) instead of
+"07_train_lstm_v2.py" -- the same silent architecture-mismatch risk we
+already fixed once in Stage 8.
+
+Stage 8 already computes the full hybrid score for every drive-day in
+val and test, streamed/joined safely via DuckDB, and now saves BOTH:
+    - results/hybrid_val_scores.csv
+    - results/hybrid_test_scores.csv
+(each with serial_number, date, hybrid_score, target)
+
+This script's only job is to calibrate tier cutoffs against val's
+hybrid_score/target columns, then apply those cutoffs to test. No model
+loading, no parquet reads, no re-inference, no GPU/CPU device needed.
 
 Calibrates Low/Medium/High tier boundaries against ACTUAL detection rate
-on the validation set, instead of fixed/arbitrary probability cutoffs
-(the root cause of the original project's tiering bug, where 84% of real
-failures ended up in "Low"). Boundaries are chosen so the High tier
-captures at least `--high_target_recall` of validation failures, then the
-same cutoffs are applied to test and reported honestly.
+on the validation set, instead of fixed/arbitrary probability cutoffs.
+Boundaries are chosen so the HIGH tier captures at least
+`--high_target_recall` of validation failures, HIGH+MEDIUM combined
+capture at least `--medium_target_recall`, then the same cutoffs are
+applied to test and reported honestly.
 
 Usage:
     python3 09_risk_tier_calibration.py \
-        --val data/processed/features_val.parquet \
-        --test data/processed/features_test.parquet \
-        --lgbm_model models/lgbm_model.txt \
-        --lgbm_threshold models/lgbm_threshold.json \
-        --lstm_model models/lstm_model.pt \
-        --lstm_config models/lstm_config.json \
-        --hybrid_config models/hybrid_config.json \
-        --target failure_within_14d \
+        --val_scores results/hybrid_val_scores.csv \
+        --test_scores results/hybrid_test_scores.csv \
         --high_target_recall 0.5 \
         --medium_target_recall 0.8 \
         --out_dir results
@@ -26,32 +39,8 @@ import argparse
 import json
 from pathlib import Path
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import torch
-
-import importlib.util
-
-
-def load_module(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def compute_hybrid_score(df: pd.DataFrame, lgbm_prob: np.ndarray, lstm_rul: np.ndarray,
-                          hybrid_config: dict, meta_model=None) -> np.ndarray:
-    if hybrid_config["chosen_strategy"] == "meta" and meta_model is not None:
-        X = np.column_stack([lgbm_prob, lstm_rul])
-        return meta_model.predict_proba(X)[:, 1]
-    fusion_mod = load_module("fusion_helper", Path(__file__).parent / "08_hybrid_fusion.py")
-    return fusion_mod.weighted_blend(
-        lgbm_prob, lstm_rul,
-        horizon_days=hybrid_config.get("horizon_days", 14.0),
-        weight_lgbm=hybrid_config.get("weight_lgbm", 0.6),
-    )
 
 
 def find_tier_cutoff(scores: np.ndarray, y_true: np.ndarray, target_recall: float,
@@ -61,16 +50,15 @@ def find_tier_cutoff(scores: np.ndarray, y_true: np.ndarray, target_recall: floa
     cutoff = larger tier = easier to hit the recall target, so we search
     from high scores downward and stop at the first cutoff that qualifies.
     If validation has zero positives, there's no real basis to calibrate
-    against — with strict=True (default) this raises rather than silently
-    falling back to an arbitrary percentile, matching Stage 6's behavior.
-    Only pass strict=False for quick smoke-testing on tiny/synthetic data."""
+    against -- with strict=True (default) this raises rather than silently
+    falling back to an arbitrary percentile."""
     if y_true.sum() == 0:
         if strict:
             raise ValueError(
-                "Validation set has zero positive examples — there is no genuine basis to "
-                "calibrate a tier cutoff against. Push --train_end/--val_end so validation "
-                "actually contains failures, or pass a non-default (non-strict) mode explicitly "
-                "if this is intentional smoke-testing on tiny data."
+                "Validation set has zero positive examples -- there is no genuine basis to "
+                "calibrate a tier cutoff against. Check --val_scores points to the right file, "
+                "or pass --allow_fallback explicitly if this is intentional smoke-testing on "
+                "tiny/synthetic data."
             )
         return float(np.percentile(scores, 90))
 
@@ -95,10 +83,10 @@ def assign_tiers(scores: np.ndarray, high_cutoff: float, medium_cutoff: float) -
     return tiers
 
 
-def tier_report(df: pd.DataFrame, tiers: np.ndarray, y_true: np.ndarray) -> pd.DataFrame:
+def tier_report(tiers: np.ndarray, y_true: np.ndarray) -> pd.DataFrame:
     """Reports BOTH the per-tier-alone breakdown AND the cumulative
     detection rate, since the MEDIUM cutoff was calibrated against a
-    CUMULATIVE HIGH+MEDIUM target, not MEDIUM in isolation — reporting
+    CUMULATIVE HIGH+MEDIUM target, not MEDIUM in isolation -- reporting
     only the per-tier share without the cumulative column would make it
     look like MEDIUM alone hits the target_recall you calibrated for,
     which it doesn't and was never meant to."""
@@ -129,15 +117,12 @@ def tier_report(df: pd.DataFrame, tiers: np.ndarray, y_true: np.ndarray) -> pd.D
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Calibrate risk tiers against real detection rate")
-    parser.add_argument("--val", type=str, required=True)
-    parser.add_argument("--test", type=str, required=True)
-    parser.add_argument("--lgbm_model", type=str, required=True)
-    parser.add_argument("--lgbm_threshold", type=str, required=True)
-    parser.add_argument("--lstm_model", type=str, required=True)
-    parser.add_argument("--lstm_config", type=str, required=True)
-    parser.add_argument("--hybrid_config", type=str, required=True)
-    parser.add_argument("--hybrid_meta_model", type=str, default=None)
-    parser.add_argument("--target", type=str, default="failure_within_14d")
+    parser.add_argument("--val_scores", type=str, required=True,
+                         help="Stage 8's results/hybrid_val_scores.csv")
+    parser.add_argument("--test_scores", type=str, required=True,
+                         help="Stage 8's results/hybrid_test_scores.csv")
+    parser.add_argument("--target", type=str, default="target",
+                         help="Target column name in the hybrid scores CSVs (Stage 8 saves it as 'target')")
     parser.add_argument("--high_target_recall", type=float, default=0.5,
                          help="HIGH tier must capture at least this fraction of real failures")
     parser.add_argument("--medium_target_recall", type=float, default=0.8,
@@ -146,41 +131,21 @@ def main() -> None:
     parser.add_argument("--allow_fallback", action="store_true",
                          help="Allow falling back to an arbitrary percentile cutoff if validation "
                               "has zero positives, instead of raising. Only use for smoke-testing "
-                              "on tiny/synthetic data — never for a real experiment.")
+                              "on tiny/synthetic data -- never for a real experiment.")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    lstm_mod = load_module("lstm_stage7", Path(__file__).parent / "07_train_lstm.py")
-    fusion_mod = load_module("fusion_stage8", Path(__file__).parent / "08_hybrid_fusion.py")
+    print(f"[LOAD] {args.val_scores}")
+    val_df = pd.read_csv(args.val_scores)
+    print(f"[LOAD] {args.test_scores}")
+    test_df = pd.read_csv(args.test_scores)
 
-    with open(args.lgbm_threshold) as f:
-        lgbm_meta = json.load(f)
-    feature_cols = lgbm_meta["feature_cols"]
-    booster = lgb.Booster(model_file=args.lgbm_model)
-
-    with open(args.hybrid_config) as f:
-        hybrid_config = json.load(f)
-    meta_model = None
-    if args.hybrid_meta_model and Path(args.hybrid_meta_model).exists():
-        import joblib
-        meta_model = joblib.load(args.hybrid_meta_model)
-
-    val_df = pd.read_parquet(args.val)
-    test_df = pd.read_parquet(args.test)
-
-    val_lgbm_prob = booster.predict(val_df[feature_cols])
-    test_lgbm_prob = booster.predict(test_df[feature_cols])
-    val_lstm_rul = fusion_mod.get_lstm_predictions(lstm_mod, val_df, args.lstm_model, args.lstm_config, device)
-    test_lstm_rul = fusion_mod.get_lstm_predictions(lstm_mod, test_df, args.lstm_model, args.lstm_config, device)
-
-    val_hybrid = compute_hybrid_score(val_df, val_lgbm_prob, val_lstm_rul, hybrid_config, meta_model)
-    test_hybrid = compute_hybrid_score(test_df, test_lgbm_prob, test_lstm_rul, hybrid_config, meta_model)
-
-    y_val = val_df[args.target].values
-    y_test = test_df[args.target].values
+    val_hybrid = val_df["hybrid_score"].to_numpy()
+    test_hybrid = test_df["hybrid_score"].to_numpy()
+    y_val = val_df[args.target].to_numpy()
+    y_test = test_df[args.target].to_numpy()
 
     high_cutoff = find_tier_cutoff(val_hybrid, y_val, args.high_target_recall, strict=not args.allow_fallback)
     medium_cutoff = find_tier_cutoff(val_hybrid, y_val, args.medium_target_recall, strict=not args.allow_fallback)
@@ -192,12 +157,12 @@ def main() -> None:
     val_tiers = assign_tiers(val_hybrid, high_cutoff, medium_cutoff)
     test_tiers = assign_tiers(test_hybrid, high_cutoff, medium_cutoff)
 
-    val_report = tier_report(val_df, val_tiers, y_val)
-    test_report = tier_report(test_df, test_tiers, y_test)
+    val_report = tier_report(val_tiers, y_val)
+    test_report = tier_report(test_tiers, y_test)
 
     print("\n[VALIDATION tier report]")
     print(val_report.to_string(index=False))
-    print("\n[TEST tier report — the honest, held-out check]")
+    print("\n[TEST tier report -- the honest, held-out check]")
     print(test_report.to_string(index=False))
 
     test_report.to_csv(out_dir / "tier_accuracy_test.csv", index=False)
@@ -209,7 +174,8 @@ def main() -> None:
     with open(out_dir / "tier_cutoffs.json", "w") as f:
         json.dump({"high_cutoff": high_cutoff, "medium_cutoff": medium_cutoff}, f, indent=2)
 
-    print(f"\n[SAVE] {out_dir/'tier_accuracy_test.csv'}")
+    print(f"\n[SAVE] {out_dir/'tier_accuracy_val.csv'}")
+    print(f"[SAVE] {out_dir/'tier_accuracy_test.csv'}")
     print(f"[SAVE] {out_dir/'risk_tiers_test.csv'}")
     print(f"[SAVE] {out_dir/'tier_cutoffs.json'}")
 
