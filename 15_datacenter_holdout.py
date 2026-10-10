@@ -71,6 +71,7 @@ def main() -> None:
     ap.add_argument("--n_trials", type=int, default=10)
     ap.add_argument("--n_holdout", type=int, default=3,
                     help="How many datacenters to hold out.")
+    ap.add_argument("--target", default="failure_within_14d")
     ap.add_argument("--max_test_rows", type=int, default=3_000_000,
                     help="Cap on test rows sampled per fold, to bound runtime.")
     args = ap.parse_args()
@@ -92,9 +93,12 @@ def main() -> None:
           f"holding out {min(args.n_holdout, len(eligible))}")
     holdouts = eligible[: args.n_holdout]
 
-    train_df, feature_cols = lgbm.load_train_chunked(Path(args.train_resampled), None,
-                                                      list(lgbm.INFRA_FEATURE_COLS))
+    train_df, feature_cols = lgbm.load_train_chunked(
+        Path(args.train_resampled), args.target, list(lgbm.INFRA_FEATURE_COLS))
     print(f"[LOAD] training set: {len(train_df):,} rows, {len(feature_cols)} features")
+    leaked = [c for c in lgbm.INFRA_FEATURE_COLS if c in feature_cols]
+    if leaked:
+        raise RuntimeError(f"infrastructure identifiers present in features: {leaked}")
 
     # Test-frame streaming, one datacenter at a time.
     import duckdb
@@ -110,39 +114,28 @@ def main() -> None:
         print(f"\n[FOLD] holding out {dc}: {len(held):,} drives "
               f"({counts[dc]:,} total, {100 * counts[dc] / len(dc_map):.1f}% of fleet)")
 
-        train_sub = train_df.copy()
-        # Datacenter is not a model feature (excluded), so there is nothing to
-        # strip from the training rows; the split is at inference time only.
+        train_sub = train_df
+        # Datacenter is not a model feature (excluded above), so there is
+        # nothing to strip from the training rows; the split happens at
+        # inference time only.
         print("[FOLD]   training on the full resampled set")
-        model = lgbm.tune_with_optuna(
-            train_sub[feature_cols], train_sub["failure_within_14d"],
-            train_sub[feature_cols].head(200_000),
-            train_sub["failure_within_14d"].head(200_000),
-            n_trials=args.n_trials)
+        tune_X = train_sub[feature_cols].head(200_000)
+        tune_y = train_sub[args.target].head(200_000)
+        model = lgbm.tune_with_optuna(train_sub[feature_cols], train_sub[args.target],
+                                      tune_X, tune_y, n_trials=args.n_trials)
         clf = lgbm.lgb.LGBMClassifier(**{**model, "objective": "binary", "verbosity": -1,
                                          "random_state": 42})
-        clf.fit(train_sub[feature_cols], train_sub["failure_within_14d"])
-        del train_sub
+        clf.fit(train_sub[feature_cols], train_sub[args.target])
+        del tune_X, tune_y
         gc.collect()
 
-        q = f"""
-            WITH sample AS (
-                SELECT * FROM read_parquet('{test_path.resolve().as_posix()}')
-                WHERE serial_number IN ({held_sql})
-                USING SAMPLE {max(args.max_test_rows // max(counts[dc], 1) * len(held), 1)} ROWS
-            )
-            SELECT serial_number, "failure_within_14d" AS target, {", ".join(feature_cols[:0])}
-            FROM sample LIMIT {args.max_test_rows}
-        """
-        # Column list is built explicitly below; the stub above keeps DuckDB
-        # from having to infer 200+ column types twice.
         cols = ", ".join(f'"{c}"' for c in feature_cols)
         q = f"""
             WITH sample AS (
                 SELECT * FROM read_parquet('{test_path.resolve().as_posix()}')
                 WHERE serial_number IN ({held_sql})
             )
-            SELECT "failure_within_14d" AS target, {cols}
+            SELECT "{args.target}" AS target, {cols}
             FROM sample USING SAMPLE {args.max_test_rows} ROWS
         """
         df = con.execute(q).fetchdf()
