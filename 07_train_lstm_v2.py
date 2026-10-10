@@ -250,7 +250,13 @@ def prepare_split_arrays(df: pd.DataFrame, feature_cols: list[str]) -> dict:
     return {
         "feat_arr": feat_arr,
         "drive_start_idx": drive_start_idx.astype(np.int64),
+        # rul_days is NULL for every surviving drive (failure_date is NaT), so
+        # it is NaN there and must never reach a loss as a target.
         "rul_days": df["rul_days"].to_numpy(dtype=np.float32),
+        # For a surviving drive, the OBSERVED survival time is the one-sided
+        # lower bound on its true RUL.  days_since_install is present for every
+        # row (rul_days is not), so it is the only usable bound.
+        "lower_bounds": df["days_since_install"].to_numpy(dtype=np.float32),
         "is_censored": df["is_censored"].to_numpy(dtype=np.int8),
         "n_rows": len(df),
     }
@@ -267,7 +273,7 @@ class LazySequenceDataset(Dataset):
     normal PyTorch Dataset."""
 
     def __init__(self, feat_arr, drive_start_idx, targets, indices, lookback,
-                 weights=None, is_censored=None):
+                 weights=None, is_censored=None, lower_bounds=None):
         self.feat_arr = feat_arr
         self.drive_start_idx = drive_start_idx
         self.targets = targets
@@ -279,6 +285,10 @@ class LazySequenceDataset(Dataset):
         # evaluation datasets (which are failing-drives-only) are unaffected.
         self.is_censored = (np.zeros(len(indices), dtype=np.float32)
                             if is_censored is None else np.asarray(is_censored, dtype=np.float32))
+        # Observed survival time for censored rows, used as the lower bound on
+        # their true RUL. Defaults to zeros so evaluation datasets are unaffected.
+        self.lower_bounds = (np.zeros(len(indices), dtype=np.float32)
+                             if lower_bounds is None else np.asarray(lower_bounds, dtype=np.float32))
 
     def __len__(self):
         return len(self.indices)
@@ -294,7 +304,8 @@ class LazySequenceDataset(Dataset):
         y = torch.tensor(self.targets[global_i], dtype=torch.float32)
         w = torch.tensor(self.weights[i], dtype=torch.float32)
         c = torch.tensor(self.is_censored[i], dtype=torch.float32)
-        return x, y, w, c
+        lb = torch.tensor(self.lower_bounds[i], dtype=torch.float32)
+        return x, y, w, c, lb
 
 
 class RULDataset(Dataset):
@@ -386,24 +397,33 @@ def train_model(model, train_loader, val_loader, epochs, lr, device,
         model.train()
         train_losses = []
         for batch in train_loader:
-            # Datasets now yield (x, y, weight, is_censored). Accept the old
-            # 3-tuple too so evaluation-only and older paths keep working.
-            if len(batch) == 4:
-                xb, yb, wb, cb = batch
-                cb = cb.to(device)
+            # Datasets yield (x, y, weight, is_censored, lower_bound). Accept
+            # shorter tuples so evaluation-only and inference paths still work.
+            if len(batch) == 5:
+                xb, yb, wb, cb, lbb = batch
+                cb, lbb = cb.to(device), lbb.to(device)
             else:
-                xb, yb, wb = batch
+                xb, yb, wb = batch[0], batch[1], batch[2]
                 cb = torch.zeros_like(yb)
+                lbb = torch.zeros_like(yb)
             xb, yb, wb = xb.to(device), yb.to(device), wb.to(device)
             optimizer.zero_grad()
             preds = model(xb)
-            sq = loss_fn(preds, yb) * wb
-            # Surviving drives contribute a one-sided lower-bound penalty
-            # instead of a squared error against an unknowable target.
-            sq = sq * (1.0 - cb)
-            if cb.sum() > 0:
-                sq = sq + censored_hinge_loss(preds, yb, cb) * wb
-            loss = sq.sum() / wb.sum().clamp(min=1e-8)
+
+            # rul_days is NULL for every surviving drive, so yb is NaN there.
+            # A NaN target poisons the whole batch: NaN * 0 is still NaN, so
+            # masking with a multiply does NOT remove it. Substitute 0 for the
+            # squared term and let the hinge handle those rows exclusively.
+            y_safe = torch.nan_to_num(yb, nan=0.0, posinf=0.0, neginf=0.0)
+            sq_failing = loss_fn(preds, y_safe) * wb * (1.0 - cb)
+            sq_censored = censored_hinge_loss(preds, lbb, cb) * wb
+            loss = (sq_failing + sq_censored).sum() / wb.sum().clamp(min=1e-8)
+            if not torch.isfinite(loss):
+                raise FloatingPointError(
+                    "non-finite training loss. Surviving drives have rul_days = NaN by "
+                    "construction, so they must be routed through the hinge term with "
+                    "days_since_install as the bound -- never through the squared term."
+                )
             loss.backward()
             optimizer.step()
             train_losses.append(loss.item())
@@ -640,7 +660,8 @@ def main():
     train_idx = np.arange(len(train_arrays["is_censored"]))
     train_ds = LazySequenceDataset(train_arrays["feat_arr"], train_arrays["drive_start_idx"],
                                     train_arrays["rul_days"], train_idx, args.lookback,
-                                    is_censored=train_arrays["is_censored"][train_idx])
+                                    is_censored=train_arrays["is_censored"][train_idx],
+                                    lower_bounds=train_arrays["lower_bounds"][train_idx])
     n_cens_train = int(train_arrays["is_censored"][train_idx].sum())
     print(f"Training on {len(train_ds):,} sequences "
           f"({len(train_ds) - n_cens_train:,} failing + {n_cens_train:,} surviving/censored)")
