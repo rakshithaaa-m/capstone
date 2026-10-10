@@ -48,6 +48,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
 NON_FEATURE_COLS = [
@@ -272,6 +273,17 @@ class RULDataset(Dataset):
 
 
 class AttentionLSTM(nn.Module):
+    """Attention-LSTM RUL regressor.
+
+    The output head ends in Softplus, not a bare Linear.  A bare Linear can
+    emit negative remaining-useful-life, which is physically meaningless and
+    previously produced 10,747 negative predictions (minimum -4,475.9 days)
+    in the full-fleet export.  Softplus keeps predictions strictly positive
+    while staying smooth and differentiable (unlike ReLU, which has a dead
+    gradient region and produces exact zeros that then poison the
+    normalization fed to Stage 8's fusion).
+    """
+
     def __init__(self, n_features: int, hidden_size: int = 32, num_layers: int = 1, dropout: float = 0.2):
         super().__init__()
         self.lstm = nn.LSTM(input_size=n_features, hidden_size=hidden_size, num_layers=num_layers,
@@ -281,21 +293,40 @@ class AttentionLSTM(nn.Module):
             nn.Linear(hidden_size, hidden_size // 2), nn.ReLU(), nn.Dropout(dropout),
             nn.Linear(hidden_size // 2, 1),
         )
+        # Softplus: guarantees RUL > 0, unlike a bare Linear head which
+        # produced 10,747 negative predictions (min -4,475.9 days) previously.
 
     def forward(self, x):
         enc_out, _ = self.lstm(x)
         scores = self.attn_score(enc_out).squeeze(-1)
         weights = torch.softmax(scores, dim=1).unsqueeze(-1)
         context = (enc_out * weights).sum(dim=1)
-        return self.head(context).squeeze(-1)
+        return F.softplus(self.head(context).squeeze(-1))
 
 
-def train_model(model, train_loader, val_loader, epochs, lr, device):
+def train_model(model, train_loader, val_loader, epochs, lr, device,
+                ckpt_path=None, resume=True):
+    """Train with best-validation checkpointing.
+
+    The best state is written to ``ckpt_path`` whenever validation improves,
+    and reloaded on a subsequent run.  Without this, a run that dies at epoch
+    12 of 20 loses every bit of its compute: the best weights only ever lived
+    in memory.  That is exactly what happened on the first retrain attempt.
+    """
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = nn.MSELoss(reduction="none")
     best_val_rmse, best_state = float("inf"), None
+    start_epoch = 1
 
-    for epoch in range(1, epochs + 1):
+    if ckpt_path is not None and resume and Path(ckpt_path).exists():
+        saved = torch.load(ckpt_path, map_location=device, weights_only=False)
+        best_val_rmse = float(saved["best_val_rmse"])
+        best_state = saved["best_state"]
+        start_epoch = int(saved.get("next_epoch", 1))
+        print(f"[RESUME] checkpoint {ckpt_path}: best val RMSE {best_val_rmse:.3f}, "
+              f"resuming at epoch {start_epoch}/{epochs}")
+
+    for epoch in range(start_epoch, epochs + 1):
         model.train()
         train_losses = []
         for xb, yb, wb in train_loader:
@@ -315,10 +346,19 @@ def train_model(model, train_loader, val_loader, epochs, lr, device):
                 val_sq.append(((model(xb) - yb) ** 2).cpu().numpy())
         val_rmse = float(np.sqrt(np.concatenate(val_sq).mean())) if val_sq else float("nan")
 
-        if val_rmse < best_val_rmse:
+        improved = val_rmse < best_val_rmse
+        if improved:
             best_val_rmse = val_rmse
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
-        print(f"  epoch {epoch:3d}/{epochs} | train weighted-MSE {np.mean(train_losses):.3f} | val RMSE {val_rmse:.3f}")
+            if ckpt_path is not None:
+                torch.save(
+                    {"best_state": best_state, "best_val_rmse": best_val_rmse,
+                     "next_epoch": epoch + 1, "epoch": epoch},
+                    ckpt_path,
+                )
+        print(f"  epoch {epoch:3d}/{epochs} | train weighted-MSE {np.mean(train_losses):.3f} | "
+              f"val RMSE {val_rmse:.3f} | best {best_val_rmse:.3f}"
+              f"{'  <- saved' if improved else ''}", flush=True)
 
     if best_state is not None:
         model.load_state_dict(best_state)
@@ -368,6 +408,14 @@ def predict_full_fleet(model, path: str, feature_cols: list[str], feat_mean, fea
                 preds.append(model(xb.to(device)).cpu().numpy())
         preds = np.concatenate(preds)
 
+        # Defensive clamp.  The Softplus head already guarantees positivity,
+        # but this export feeds Stage 8's fusion, where a negative RUL would
+        # invert the risk contribution.  Never let that happen silently.
+        n_clamped = int((preds < 0).sum())
+        if n_clamped:
+            print(f"  [GUARD] clamped {n_clamped} negative RUL predictions to 0")
+        preds = np.clip(preds, 0.0, None)
+
         out_chunk = pd.DataFrame({
             "serial_number": chunk["serial_number"], "date": chunk["date"], "lstm_rul_pred": preds
         })
@@ -400,6 +448,21 @@ def main():
                               "RUL at 60 days before failure. Leave unset for the original, full-range "
                               "evaluation.")
     parser.add_argument("--skip_full_inference", action="store_true")
+    parser.add_argument(
+        "--restart_training", action="store_true",
+        help="Ignore any existing lstm_best_state.pt checkpoint and train from scratch. "
+             "By default a previous run resumes from its last best-validation epoch.",
+    )
+    parser.add_argument(
+        "--inference_only", action="store_true",
+        help="Skip training and test evaluation; regenerate the full-fleet prediction "
+             "CSVs from the saved lstm_model.pt + lstm_config.json. Use this to recover "
+             "from a run that died during the multi-GB inference write.",
+    )
+    parser.add_argument("--skip_val_inference", action="store_true",
+                        help="With --inference_only, regenerate only the test predictions.")
+    parser.add_argument("--skip_test_inference", action="store_true",
+                        help="With --inference_only, regenerate only the val predictions.")
     parser.add_argument("--out_dir", nargs=2, default=["models", "results"], metavar=("MODELS_DIR", "RESULTS_DIR"))
     args = parser.parse_args()
 
@@ -409,6 +472,56 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
+
+    # ---- Inference-only fast path -------------------------------------------
+    # Full-fleet inference writes multi-GB CSVs that Stage 8 consumes.  If a
+    # run dies during that write (or the machine restarts), re-running the
+    # whole script would retrain from scratch -- hours -- to regenerate a
+    # purely post-hoc artifact.  Everything inference needs was persisted to
+    # lstm_config.json at training time: architecture, feature list, and the
+    # exact normalization statistics the weights were fitted against.
+    if args.inference_only:
+        cfg_path = models_dir / "lstm_config.json"
+        w_path = models_dir / "lstm_model.pt"
+        if not cfg_path.exists() or not w_path.exists():
+            raise SystemExit(
+                f"--inference_only needs {cfg_path} and {w_path}. "
+                "Run a full training pass first."
+            )
+        cfg = json.loads(cfg_path.read_text())
+        feature_cols = list(cfg["feature_cols"])
+        print(f"[INFER-ONLY] config: {len(feature_cols)} features, lookback "
+              f"{cfg['lookback']}, hidden {cfg['hidden_size']}, "
+              f"head={cfg.get('head_activation', 'unknown')}")
+        print(f"[INFER-ONLY] restoring normalization from saved config "
+              f"(head={cfg.get('head_activation')}, best_val_rmse="
+              f"{cfg.get('best_val_rmse', float('nan')):.3f})")
+        feat_mean = pd.Series(cfg["feat_mean"])
+        feat_std = pd.Series(cfg["feat_std"]).replace(0, 1.0)
+
+        model = AttentionLSTM(n_features=len(feature_cols),
+                              hidden_size=int(cfg["hidden_size"])).to(device)
+        model.load_state_dict(torch.load(w_path, map_location=device))
+        model.eval()
+        n_params = sum(p.numel() for p in model.parameters())
+        print(f"[INFER-ONLY] loaded weights ({n_params:,} parameters)")
+
+        jobs = []
+        if not args.skip_val_inference:
+            jobs.append((args.val, results_dir / "lstm_full_val_preds.csv"))
+        if not args.skip_test_inference:
+            jobs.append((args.test, results_dir / "lstm_full_test_preds.csv"))
+        if not jobs:
+            print("[INFER-ONLY] nothing to do: both --skip_val_inference and "
+                  "--skip_test_inference were set")
+            return
+
+        for src, out_path in jobs:
+            print(f"[INFER-ONLY] full inference -> {out_path}")
+            predict_full_fleet(model, src, feature_cols, feat_mean, feat_std,
+                               int(cfg["lookback"]), device, out_path)
+            print(f"[SAVE] {out_path}")
+        return
 
     paths = {"train": args.train, "val": args.val, "test": args.test}
 
@@ -466,7 +579,13 @@ def main():
     model = AttentionLSTM(n_features=len(feature_cols), hidden_size=args.hidden_size).to(device)
     print(f"[TRAIN] {sum(p.numel() for p in model.parameters()):,} parameters")
 
-    model, best_val_rmse = train_model(model, train_loader, val_loader, args.epochs, args.lr, device)
+    ckpt_path = models_dir / "lstm_best_state.pt"
+    model, best_val_rmse = train_model(
+        model, train_loader, val_loader, args.epochs, args.lr, device,
+        ckpt_path=ckpt_path, resume=not args.restart_training,
+    )
+    if ckpt_path.exists():
+        ckpt_path.unlink()  # consumed; the final weights are saved below
     print(f"[TRAIN] best validation RMSE: {best_val_rmse:.3f}")
 
     # Val's arrays are no longer needed once training is done -- free them
@@ -508,10 +627,49 @@ def main():
 
     torch.save(model.state_dict(), models_dir / "lstm_model.pt")
     with open(models_dir / "lstm_config.json", "w") as f:
-        json.dump({"feature_cols": feature_cols, "lookback": args.lookback, "hidden_size": args.hidden_size,
-                    "feat_mean": feat_mean.to_dict(), "feat_std": feat_std.to_dict()}, f, indent=2)
+        json.dump({
+            "feature_cols": feature_cols,
+            "lookback": args.lookback,
+            "hidden_size": args.hidden_size,
+            "feat_mean": feat_mean.to_dict(),
+            "feat_std": feat_std.to_dict(),
+            # Full provenance: without this, a reader cannot tell which
+            # hyper-parameters produced the shipped weights, which is exactly
+            # what a reproducibility reviewer asks first.
+            "head_activation": "softplus",
+            "train_args": {
+                "lookback": args.lookback,
+                "epochs": args.epochs,
+                "batch_size": args.batch_size,
+                "lr": args.lr,
+                "hidden_size": args.hidden_size,
+                "max_history_days": args.max_history_days,
+                "norm_sample_rows": args.norm_sample_rows,
+                "max_rul_for_eval": args.max_rul_for_eval,
+                "train": str(args.train),
+                "val": str(args.val),
+                "test": str(args.test),
+            },
+            "best_val_rmse": float(best_val_rmse),
+            "test_metrics": {k: (float(v) if k in ("rmse", "mae") else int(v))
+                             for k, v in test_metrics.items()},
+            "torch_version": torch.__version__,
+            "device": str(device),
+        }, f, indent=2)
+    # Record the evaluation window alongside the metrics.  lstm_metrics.csv is
+    # overwritten on every run, so a capped run (--max_rul_for_eval 60) and a
+    # full-range run are not comparable numbers.  Persisting the window in the
+    # row -- and appending to a history file -- keeps both reproducible instead
+    # of silently replacing one with the other.
+    eval_window = args.max_rul_for_eval if args.max_rul_for_eval is not None else "full"
+    test_metrics["eval_window_days"] = eval_window
     pd.DataFrame([test_metrics]).to_csv(results_dir / "lstm_metrics.csv", index=False)
-    print(f"[SAVE] {models_dir/'lstm_model.pt'}, {models_dir/'lstm_config.json'}, {results_dir/'lstm_metrics.csv'}")
+    history_path = results_dir / "lstm_metrics_history.csv"
+    history_row = pd.DataFrame([{**test_metrics, "recorded_at": pd.Timestamp.now().isoformat()}])
+    history_row.to_csv(history_path, mode="a", header=not history_path.exists(), index=False)
+    print(f"[SAVE] {models_dir/'lstm_model.pt'}, {models_dir/'lstm_config.json'}, "
+          f"{results_dir/'lstm_metrics.csv'} (window={eval_window})")
+    print(f"[SAVE] appended eval history -> {history_path}")
 
     if not args.skip_full_inference:
         predict_full_fleet(model, args.val, feature_cols, feat_mean, feat_std, args.lookback, device,

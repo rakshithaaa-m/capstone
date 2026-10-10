@@ -1,16 +1,21 @@
 """
 Stage 12 — Root Cause and Mitigation Mapping
 
-For each Medium/High-risk drive, looks up its single strongest SHAP-driving
-feature (from Stage 11's per-row values) and maps it to a plain-language
-root cause and a recommended action, using a rule-based lookup table (not
-a model — built once, reused by the dashboard).
+For each Medium/High-risk drive, looks up its strongest SHAP-driving feature
+(from Stage 11's per-row LightGBM values) and maps it to a plain-language root
+cause and a recommended action, using a rule-based lookup table (not a model —
+built once, reused by the dashboard). SHAP explains the LightGBM component;
+the calibrated tier itself comes from the hybrid fusion output, so the
+dashboard labels those sources separately.
 
-Usage:
+Usage (use the full at-risk SHAP file for complete dashboard coverage):
     python3 12_mitigation_mapping.py \
         --risk_tiers results/risk_tiers_test.csv \
-        --shap_values results/shap_values.parquet \
+        --shap_values results/shap_values_at_risk.parquet \
         --out results/mitigation_mapping.json
+
+Do not substitute the small ``shap_values.parquet`` sample unless you
+intentionally want a sample-only explanation mapping.
 """
 import argparse
 import json
@@ -139,12 +144,11 @@ def strip_suffix(feature_name: str) -> str:
 def top_driver_per_row(shap_df: pd.DataFrame) -> pd.DataFrame:
     shap_cols = [c for c in shap_df.columns if c.startswith("shap_")]
     values = shap_df[shap_cols].values
-    # Most INFLUENTIAL feature by magnitude, not just "most positive" — the
-    # earlier version's argmax() would pick the least-negative feature if
-    # every SHAP value for a row happened to be negative, which isn't
-    # actually the strongest explanation for that row. Direction (did it
-    # push risk up or down) is recorded separately alongside magnitude.
-    top_idx = np.abs(values).argmax(axis=1)
+    # Prefer the strongest feature that pushes risk upward.  A negative SHAP
+    # value is protective, not an elevated failure cause; when a row has no
+    # positive contribution, retain the least-negative driver and mark it as
+    # decreased risk so downstream UIs do not present it as a root cause.
+    top_idx = values.argmax(axis=1)
     top_feature_names = [shap_cols[i][len("shap_"):] for i in top_idx]
     top_values = values[np.arange(len(values)), top_idx]
     top_direction = np.where(top_values > 0, "increased risk", "decreased risk")
@@ -184,7 +188,12 @@ def merge_tiers_with_drivers(risk_tiers_path: str, drivers: pd.DataFrame) -> pd.
 def main() -> None:
     parser = argparse.ArgumentParser(description="Map SHAP top drivers to root cause and mitigation actions")
     parser.add_argument("--risk_tiers", type=str, required=True)
-    parser.add_argument("--shap_values", type=str, required=True)
+    parser.add_argument(
+        "--shap_values",
+        type=str,
+        required=True,
+        help="SHAP parquet to map; use shap_values_at_risk.parquet for full at-risk coverage",
+    )
     parser.add_argument("--out", type=str, default="results/mitigation_mapping.json")
     args = parser.parse_args()
 
@@ -197,22 +206,37 @@ def main() -> None:
 
     at_risk = merged[merged["risk_tier"].isin(["HIGH", "MEDIUM"])].copy()
     print(f"[MAPPING] {len(at_risk)} Medium/High risk rows to map "
-          f"(out of {len(merged)} rows that had a SHAP explanation available -- SHAP was computed "
-          f"on a {len(shap_df):,}-row sample, not the full test set, so this covers only that "
-          f"sample's Medium/High rows, not every at-risk drive in the fleet)")
+          f"(from {len(merged):,} rows with a date-matched SHAP explanation; "
+          f"input contained {len(shap_df):,} rows -- use shap_values_at_risk.parquet "
+          f"for full at-risk coverage)")
 
     records = []
     for _, row in at_risk.iterrows():
         base = row["top_driver_base"]
         lookup = ROOT_CAUSE_LOOKUP.get(base, DEFAULT_ENTRY)
+        direction = row.get("top_driver_direction")
+        if direction == "decreased risk":
+            root_cause = (
+                "The strongest sampled driver is associated with lower predicted "
+                "risk, so it is not a failure root cause on its own."
+            )
+            action = (
+                "Do not act on this driver alone; continue standard monitoring "
+                "and review the complete assessment."
+            )
+        else:
+            root_cause = lookup["root_cause"]
+            action = lookup["action"]
         records.append({
             "serial_number": row["serial_number"],
             "date": str(row["date"].date()) if pd.notna(row["date"]) else None,
             "risk_tier": row["risk_tier"],
             "top_driver_feature": row.get("top_driver_raw"),
-            "top_driver_direction": row.get("top_driver_direction"),
-            "root_cause": lookup["root_cause"],
-            "recommended_action": lookup["action"],
+            "top_driver_direction": direction,
+            "top_driver_shap_value": float(row["top_driver_shap_value"])
+            if pd.notna(row.get("top_driver_shap_value")) else None,
+            "root_cause": root_cause,
+            "recommended_action": action,
         })
 
     out_path = Path(args.out)

@@ -1,0 +1,4 @@
+model,threshold,tp,fp,fn,tn,total_cost,cost_per_1000_drives,threshold_source
+LightGBM only,0.62,40577,1441986,27112,143229804,4153186.0,28.69421686946932,"shipped (Stage 6, selected on validation)"
+LightGBM only,0.62,40577,1441986,27112,143229804,4153186.0,28.69421686946932,cost-optimal on validation (0.6200)
+Selected strategy (lgbm_only) -- IDENTICAL to LightGBM,0.62,40577,1441986,27112,143229804,4153186.0,28.69421686946932,cost-optimal on validation (0.6200)

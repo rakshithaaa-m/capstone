@@ -1,0 +1,2 @@
+level,model,auprc,ci_lo,ci_hi,roc_auc,auc_ci_lo,auc_ci_hi,n_boot,n_drives,n_failing_drives,resampling_unit
+drive,Meta fusion (shipped),0.5979604978916577,0.5837355082183316,0.6108104437038451,0.9203017293688645,0.9159325069546075,0.925329944072505,200,352383,5254,physical drive (full bootstrap)

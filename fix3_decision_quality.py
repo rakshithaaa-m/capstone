@@ -45,8 +45,13 @@ def cost_at_threshold(y_true: np.ndarray, probs: np.ndarray, threshold: float,
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--lgbm_test_probs", type=str, required=True)
+    parser.add_argument("--lgbm_val_probs", type=str, required=True,
+                        help="Stage 6 validation probabilities. Cost-optimal thresholds are "
+                             "selected HERE, never on test.")
     parser.add_argument("--lgbm_threshold", type=str, required=True)
     parser.add_argument("--hybrid_test_scores", type=str, required=True)
+    parser.add_argument("--hybrid_val_scores", type=str, required=True,
+                        help="Stage 8 validation scores, used for threshold selection only.")
     parser.add_argument("--cost_matrix", type=str, required=True)
     parser.add_argument("--target", type=str, default="failure_within_14d")
     parser.add_argument("--hybrid_config", type=str, required=True, help="models/hybrid_config.json")
@@ -63,45 +68,85 @@ def main():
     # Both files share (serial_number, date) -- fetch only the small
     # numeric columns needed, same pattern used throughout this pipeline.
     con = duckdb.connect()
-    joined = con.execute(f"""
-        SELECT l.lgbm_prob AS lgbm_prob, h.hybrid_score AS hybrid_score, l."{args.target}" AS target
-        FROM read_csv_auto('{args.lgbm_test_probs}') AS l
-        INNER JOIN read_csv_auto('{args.hybrid_test_scores}') AS h
-            ON l.serial_number = h.serial_number AND l.date = h.date
-    """).fetchdf()
+
+    def join_scores(a_path, b_path):
+        return con.execute(f"""
+            SELECT l.lgbm_prob AS lgbm_prob, h.hybrid_score AS hybrid_score,
+                   l."{args.target}" AS target
+            FROM read_csv_auto('{a_path}') AS l
+            INNER JOIN read_csv_auto('{b_path}') AS h
+                ON l.serial_number = h.serial_number AND l.date = h.date
+        """).fetchdf()
+
+    test = join_scores(args.lgbm_test_probs, args.hybrid_test_scores)
+    val = join_scores(args.lgbm_val_probs, args.hybrid_val_scores)
     con.close()
 
-    y_true = joined["target"].to_numpy()
+    y_test = test["target"].to_numpy()
+    y_val = val["target"].to_numpy()
     fn_cost, fp_cost = cost_matrix["false_negative_cost"], cost_matrix["false_positive_cost"]
 
-    lgbm_result = cost_at_threshold(y_true, joined["lgbm_prob"].to_numpy(), lgbm_threshold, fn_cost, fp_cost)
-
-    # Hybrid needs ITS OWN cost-optimal threshold -- comparing it at
-    # LightGBM's threshold would be an unfair test, since the two scores
-    # live on different scales/distributions.
     import lightgbm  # noqa -- ensures the same environment as the rest of the pipeline
     from importlib.util import spec_from_file_location, module_from_spec
     spec = spec_from_file_location("lgbm_stage6", Path(__file__).parent / "06_train_lightgbm.py")
     lgbm_mod = module_from_spec(spec)
     spec.loader.exec_module(lgbm_mod)
-    hybrid_threshold = lgbm_mod.select_cost_optimal_threshold(y_true, joined["hybrid_score"].to_numpy(), fn_cost, fp_cost)
-    hybrid_result = cost_at_threshold(y_true, joined["hybrid_score"].to_numpy(), hybrid_threshold, fn_cost, fp_cost)
 
-    comparison = pd.DataFrame([
-        {"model": "LightGBM only", **lgbm_result},
-        {"model": f"Hybrid Fusion ({hybrid_config['chosen_strategy']})", **hybrid_result},
-    ])
+    # THRESHOLDS ARE SELECTED ON VALIDATION AND FROZEN.
+    # The previous version selected the second threshold on the TEST set and
+    # then reported test cost at it, which is threshold tuning on the
+    # evaluation data.  That inflates the second row and, because Stage 8
+    # chose lgbm_only (so both scores are literally lgbm_prob), it produced a
+    # spurious "-7.9% fusion benefit" that was purely a threshold artefact.
+    lgbm_test_scores = test["lgbm_prob"].to_numpy()
+    hybrid_test_scores = test["hybrid_score"].to_numpy()
+    scores_identical = bool(np.allclose(lgbm_test_scores, hybrid_test_scores, atol=1e-12))
+
+    strategy = hybrid_config.get("chosen_strategy", "unknown")
+    lgbm_val_optimal = lgbm_mod.select_cost_optimal_threshold(
+        y_val, val["lgbm_prob"].to_numpy(), fn_cost, fp_cost)
+    hybrid_val_optimal = lgbm_mod.select_cost_optimal_threshold(
+        y_val, val["hybrid_score"].to_numpy(), fn_cost, fp_cost)
+
+    lgbm_shipped = cost_at_threshold(y_test, lgbm_test_scores, lgbm_threshold, fn_cost, fp_cost)
+    lgbm_shipped["threshold_source"] = "shipped (Stage 6, selected on validation)"
+    lgbm_opt = cost_at_threshold(y_test, lgbm_test_scores, lgbm_val_optimal, fn_cost, fp_cost)
+    lgbm_opt["threshold_source"] = f"cost-optimal on validation ({lgbm_val_optimal:.4f})"
+    hybrid_opt = cost_at_threshold(y_test, hybrid_test_scores, hybrid_val_optimal, fn_cost, fp_cost)
+    hybrid_opt["threshold_source"] = f"cost-optimal on validation ({hybrid_val_optimal:.4f})"
+
+    strategy_label = (f"Selected strategy ({strategy})" if not scores_identical
+                      else f"Selected strategy ({strategy}) -- IDENTICAL to LightGBM")
+    rows = [
+        {"model": "LightGBM only", **lgbm_shipped},
+        {"model": "LightGBM only", **lgbm_opt},
+        {"model": strategy_label, **hybrid_opt},
+    ]
+    comparison = pd.DataFrame(rows)
     print(comparison.to_string(index=False))
 
-    cost_diff_pct = 100 * (hybrid_result["total_cost"] - lgbm_result["total_cost"]) / lgbm_result["total_cost"]
-    print(f"\n[VERDICT] Hybrid's total expected cost is {cost_diff_pct:+.1f}% vs LightGBM alone.")
-    if cost_diff_pct < 0:
-        print("[VERDICT] Hybrid produces LOWER expected cost -- a genuine, defensible fusion benefit "
-              "even though AUPRC alone didn't show it. This is the metric to lead with in the paper.")
+    if scores_identical:
+        print("\n[CHECK] The shipped strategy is 'lgbm_only', so hybrid_score == lgbm_prob on "
+              "every test row (verified, max abs diff < 1e-12). The third row is therefore NOT "
+              "an independent model: it is LightGBM at its own cost-optimal threshold.")
+        print("[CHECK] Any cost difference between rows 2 and 3 is caused by the THRESHOLD, "
+              "not by the model architecture.")
+
+    base = lgbm_opt["total_cost"]
+    cost_diff_pct = 100 * (hybrid_opt["total_cost"] - base) / base
+    print(f"\n[VERDICT] Shipped strategy total cost is {cost_diff_pct:+.1f}% vs LightGBM, "
+          "both at validation-selected thresholds.")
+    if scores_identical:
+        print("[VERDICT] Because the shipped strategy IS LightGBM, this is not a fusion "
+              "result at all. Report it as a THRESHOLD-CALIBRATION finding: the "
+              "decision threshold, not the model architecture, drove the cost change.")
+    elif cost_diff_pct < 0:
+        print("[VERDICT] The shipped strategy produces LOWER expected cost at a threshold "
+              "chosen on validation. That is a defensible benefit of the fusion, and it is "
+              "the metric to lead with.")
     else:
-        print("[VERDICT] Hybrid does not reduce expected cost here. Report the fusion honestly as "
-              "adding timeline information (RUL) rather than improving the classification decision "
-              "itself -- don't claim a cost benefit that isn't supported.")
+        print("[VERDICT] The shipped strategy does not reduce expected cost. Report the "
+              "fusion honestly -- do not claim a cost benefit that is not supported.")
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     comparison.to_csv(args.out, index=False)

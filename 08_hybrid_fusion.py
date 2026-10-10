@@ -68,16 +68,33 @@ def export_hybrid_csv(lgbm_path: str, lstm_path: str, target: str, out_path: Pat
     created. The weighted-blend formula and the meta-learner's fitted
     logistic regression (just an intercept + 2 coefficients + sigmoid)
     are both simple enough to express directly in SQL."""
+    # ONE canonical RUL encoding, shared by the weighted blend, the
+    # meta-learner, and the SQL export below.  Previously the weighted blend
+    # used horizon_bounded_risk ([0,1] urgency) while the meta-learner was fed
+    # raw unbounded RUL in DAYS.  That mismatch made the two strategies
+    # incomparable, left the meta coefficients unscalable (a RUL-day
+    # coefficient next to a probability coefficient), and made the sign
+    # uninterpretable.  With a shared encoding the coefficient sign becomes
+    # physically meaningful: positive == more predicted urgency == more risk.
+    rul_risk_expr = (
+        f"GREATEST(0.0, LEAST(1.0, ({horizon_days}-r.lstm_rul_pred)/{horizon_days}))"
+    )
     weighted_expr = (
-        f"({weight_lgbm}*l.lgbm_prob + (1-{weight_lgbm})*"
-        f"GREATEST(0.0, LEAST(1.0, ({horizon_days}-r.lstm_rul_pred)/{horizon_days})))"
+        f"({weight_lgbm}*l.lgbm_prob + (1-{weight_lgbm})*{rul_risk_expr})"
     )
     if strategy == "meta" and meta_coef is not None:
         meta_expr = (
             f"(1.0 / (1.0 + EXP(-({meta_intercept} + {meta_coef[0]}*l.lgbm_prob "
-            f"+ {meta_coef[1]}*r.lstm_rul_pred))))"
+            f"+ {meta_coef[1]}*{rul_risk_expr}))))"
         )
         chosen_expr = meta_expr
+    elif strategy == "lgbm_only":
+        # The fusion layer did not beat its own LightGBM component on held-out
+        # validation, so it is not shipped.  RUL is still exported in the
+        # lstm_rul_pred column and can be shown as a labelled annotation, but
+        # it does not touch the operational score.
+        meta_expr = "NULL"
+        chosen_expr = "l.lgbm_prob"
     else:
         meta_expr = "NULL"
         chosen_expr = weighted_expr
@@ -154,7 +171,13 @@ def main() -> None:
     # validation (fit half trains it, select half is the ONLY data whose
     # AUPRC decides weighted-vs-meta), then refit on the full validation
     # set for the model actually used on test.
-    meta_X_val_full = np.column_stack([val_lgbm_prob, val_lstm_rul])
+    #
+    # The RUL column is converted with the SAME horizon_bounded_risk used by
+    # weighted_blend and by the SQL export.  Feeding raw RUL days here (the old
+    # behaviour) was the single biggest defect in this stage.
+    val_rul_risk = horizon_bounded_risk(val_lstm_rul, args.horizon_days)
+    test_rul_risk = horizon_bounded_risk(test_lstm_rul, args.horizon_days)
+    meta_X_val_full = np.column_stack([val_lgbm_prob, val_rul_risk])
     meta_model = None
     val_meta_select_auprc = -1.0
     val_meta = np.zeros_like(val_weighted)
@@ -175,27 +198,80 @@ def main() -> None:
         meta_model = LogisticRegression(class_weight="balanced")
         meta_model.fit(meta_X_val_full, y_val)
         val_meta = meta_model.predict_proba(meta_X_val_full)[:, 1]
-        test_meta = meta_model.predict_proba(np.column_stack([test_lgbm_prob, test_lstm_rul]))[:, 1]
+        test_meta = meta_model.predict_proba(np.column_stack([test_lgbm_prob, test_rul_risk]))[:, 1]
     else:
         print("WARNING: validation set doesn't have enough positives to hold out a genuine "
               "fit/select split for the meta-learner -- skipping the meta strategy entirely "
               "rather than risk a leaked, artificially inflated selection. Using weighted blend.")
 
-    weighted_val_auprc = safe_auprc(y_val, val_weighted)
-    chosen_strategy = "meta" if (meta_model is not None and val_meta_select_auprc > weighted_val_auprc) else "weighted"
-    test_hybrid_score = test_meta if chosen_strategy == "meta" else test_weighted
+    # ---- Candidate selection -------------------------------------------------
+    # Every candidate is scored on the SAME held-out selection half, on the same
+    # rows, with the same metric.  Previously the meta-learner's AUPRC came
+    # from the held-out half while the weighted blend's came from the FULL
+    # validation set, which is not a comparison -- it biases selection toward
+    # whichever candidate benefits from more rows.
+    #
+    # "LightGBM alone" is a genuine candidate.  A fusion layer can only earn
+    # its place by beating the component it wraps; if the RUL branch adds
+    # nothing, the correct engineering decision is to ship LightGBM and keep
+    # RUL as a labelled annotation rather than degrade every score.
+    select_idx = idx_select if meta_model is not None else np.arange(len(y_val))
+    y_sel = y_val[select_idx]
 
-    print(f"[COMPARE] weighted-blend val AUPRC (full val):        {weighted_val_auprc:.4f}")
-    print(f"[COMPARE] meta-learner val AUPRC (held-out half only): "
-          f"{val_meta_select_auprc if meta_model is not None else 'N/A (skipped)'}")
-    print(f"[CHOSEN] strategy = {chosen_strategy}")
+    # Each candidate carries its own predictions ALREADY restricted to the
+    # selection half.  lgbm_only and weighted are full-length validation
+    # vectors and must be subset; select_preds was produced by scoring only
+    # idx_select, so subsetting it again is a bug.
+    candidates = {"lgbm_only": np.asarray(val_lgbm_prob)[select_idx]}
+    if meta_model is not None:
+        candidates["weighted"] = np.asarray(val_weighted)[select_idx]
+        candidates["meta"] = np.asarray(select_preds)
+
+    scores = {}
+    for name, sel_scores in candidates.items():
+        if len(sel_scores) != len(y_sel):
+            raise ValueError(
+                f"candidate '{name}' has {len(sel_scores):,} predictions for "
+                f"{len(y_sel):,} selection rows"
+            )
+        scores[name] = safe_auprc(y_sel, sel_scores)
+
+    print("[SELECT] candidate AUPRC on the held-out selection half "
+          f"({int(y_sel.sum())} positives / {len(y_sel):,} rows):")
+    for name, sc in sorted(scores.items(), key=lambda kv: -kv[1]):
+        print(f"[SELECT]   {name:12s} {sc:.5f}")
+
+    best_name = max(scores, key=scores.get)
+    # Require a real margin over LightGBM-alone before adding a fusion layer.
+    # A tie must never be broken in favour of the more complex system.
+    MARGIN = 1e-4
+    if best_name != "lgbm_only" and scores[best_name] - scores["lgbm_only"] <= MARGIN:
+        print(f"[SELECT] '{best_name}' does not beat 'lgbm_only' by more than "
+              f"{MARGIN:.4f}; shipping lgbm_only (simpler, no measurable loss)")
+        best_name = "lgbm_only"
+
+    chosen_strategy = best_name
+    print(f"[CHOSEN] strategy = {chosen_strategy} "
+          f"(val selection AUPRC {scores[chosen_strategy]:.5f})")
+
+    if chosen_strategy == "meta":
+        test_hybrid_score = test_meta
+    elif chosen_strategy == "weighted":
+        test_hybrid_score = test_weighted
+    else:
+        test_hybrid_score = test_lgbm_prob
 
     metrics = {
         "chosen_strategy": chosen_strategy,
         "test_auprc": safe_auprc(y_test, test_hybrid_score),
         "test_roc_auc": safe_auc(y_test, test_hybrid_score),
-        "val_auprc_used_for_selection": weighted_val_auprc if chosen_strategy == "weighted" else val_meta_select_auprc,
+        "val_auprc_used_for_selection": scores[chosen_strategy],
     }
+    # Flatten the candidate comparison so hybrid_metrics.csv stays a clean,
+    # parseable table.  These columns are the evidence that the fusion layer
+    # was worth shipping -- or that it was not.
+    for name, sc in scores.items():
+        metrics[f"val_select_auprc_{name}"] = sc
     print(f"[TEST] hybrid AUPRC={metrics['test_auprc']:.4f}  ROC-AUC={metrics['test_roc_auc']:.4f}")
 
     meta_coef = meta_intercept = None
@@ -208,6 +284,18 @@ def main() -> None:
             "chosen_strategy": chosen_strategy, "weight_lgbm": args.weight_lgbm,
             "horizon_days": args.horizon_days,
             "meta_coef": meta_coef, "meta_intercept": meta_intercept,
+            # Records which RUL encoding the meta coefficients were FITTED
+            # under.  Downstream counterfactuals (14b_paper_evaluation.py)
+            # must apply the same transform; without this field a reader can
+            # silently feed raw-day coefficients a horizon-bounded feature and
+            # understate the RUL term's effect by orders of magnitude.
+            "rul_encoding": "horizon_bounded",
+            "rul_encoding_formula": "clip((horizon_days - rul_days) / horizon_days, 0, 1)",
+            # Every candidate's held-out validation AUPRC, and the margin the
+            # winner needed to beat lgbm_only.  A reader can verify the
+            # selection decision from this alone.
+            "candidate_val_auprc": scores,
+            "lgbm_only_is_operational_score": chosen_strategy == "lgbm_only",
         }, f, indent=2)
 
     # Write the final CSVs directly via DuckDB (no pandas involved for the

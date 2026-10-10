@@ -67,6 +67,11 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+# A per-model ROC-AUC estimated from fewer positives than this has a
+# confidence interval wide enough to be uninformative.  Rows below the
+# threshold are still computed and reported, but flagged as low power.
+MIN_POSITIVES_FOR_PER_MODEL_METRIC = 30
+
 
 def load_module(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -176,7 +181,13 @@ def generalizability_report(test_parquet_path: str, lgbm_test_probs_path: str, t
     that model's (lgbm_prob, target) pairs via a DuckDB query joined
     against Stage 6's already-computed probabilities CSV -- never touches
     the 217-column feature parquet's full row set, and never holds more
-    than one drive model's rows in memory at once."""
+    than one drive model's rows in memory at once.
+
+    Per-model metrics are reported with their positive count because several
+    drive models have only a handful of failures in the test split.  A
+    ROC-AUC estimated from <30 positives has a confidence interval spanning
+    most of the unit interval, so those rows are flagged rather than trusted.
+    Fleet-level metrics remain the primary result."""
     con = duckdb.connect()
     models = con.execute(
         f"SELECT DISTINCT model FROM read_parquet('{test_parquet_path}') WHERE model IS NOT NULL"
@@ -199,14 +210,32 @@ def generalizability_report(test_parquet_path: str, lgbm_test_probs_path: str, t
         result = con.execute(query).fetchnumpy()
         y_true = result["target"].astype(np.int64)
         y_probs = result["lgbm_prob"]
+        n_pos = int(y_true.sum())
 
-        if y_true.sum() == 0:
+        # A per-model ROC-AUC is only meaningful with enough positives to
+        # estimate a ranking.  Emitting a bare NaN (previous behaviour) left 34
+        # of 100 rows blank, which reads as sloppiness rather than as an
+        # honest statement about statistical power.  Report the positive count
+        # and an explicit status instead, and mark the low-power rows so they
+        # are never quoted as if they were reliable.
+        reliable = n_pos >= MIN_POSITIVES_FOR_PER_MODEL_METRIC
+        if n_pos == 0:
             metrics = {"roc_auc": float("nan"), "auprc": float("nan"),
                        "f1": float("nan"), "precision": float("nan"), "recall": float("nan"),
                        "tp": 0, "tn": 0, "fp": 0, "fn": 0, "threshold": threshold}
+            status = "no_positives"
+        elif not reliable:
+            # Still compute the point estimate -- it is informative -- but flag
+            # it.  Several models land well below 0.5 purely because of this.
+            metrics = lgbm_mod.evaluate(y_true, y_probs, threshold)
+            status = f"low_power(<{MIN_POSITIVES_FOR_PER_MODEL_METRIC}_positives)"
         else:
             metrics = lgbm_mod.evaluate(y_true, y_probs, threshold)
-        rows.append({"drive_model": model_name, "n_rows": len(y_true), **metrics})
+            status = "ok"
+        rows.append({"drive_model": model_name, "n_rows": len(y_true),
+                     "n_positives": n_pos, "metric_status": status,
+                     "below_chance_auroc": bool(reliable and metrics.get("roc_auc", float("nan")) < 0.5),
+                     **metrics})
         del result, y_true, y_probs
     con.close()
     return pd.DataFrame(rows)
@@ -225,6 +254,10 @@ def main() -> None:
     parser.add_argument("--hybrid_test_scores", type=str, required=True, help="Stage 8's results/hybrid_test_scores.csv")
     parser.add_argument("--target", type=str, default="failure_within_14d")
     parser.add_argument("--horizon_days", type=float, default=14.0)
+    parser.add_argument("--skip_phases", type=str, default="",
+                        help="Comma-separated phases to skip when their output CSV already "
+                             "exists: '2a', '2b', '3'. Use after an interrupted run to avoid "
+                             "redoing multi-hour retrains that already completed.")
     parser.add_argument("--ablation_n_trials", type=int, default=10)
     parser.add_argument("--ablation_2b_sample_rows", type=int, default=5_000_000,
                          help="Prefix-sample size from the unresampled train set for ablation 2b "
@@ -253,46 +286,64 @@ def main() -> None:
 
     print("\n=== 2a. Ablation: with vs without rolling/delta features ===")
     with_rolling = pd.read_csv(args.lgbm_metrics).iloc[0].to_dict()
-    train_resampled_df, all_feature_cols = lgbm_mod.load_train_chunked(Path(args.train_resampled), args.target)
-    filtered_cols = [c for c in all_feature_cols if "_roll" not in c and "_delta" not in c]
-    print(f"[ABLATION] Using {len(filtered_cols)}/{len(all_feature_cols)} feature columns")
-    without_rolling = train_and_stream_evaluate(
-        train_resampled_df, filtered_cols, args.target, Path(args.val), Path(args.test),
-        cost_matrix, args.ablation_n_trials, lgbm_mod
-    )
-    feature_ablation_df = pd.DataFrame([
-        {"variant": "full (with rolling+delta)", **{k: with_rolling[k] for k in ["roc_auc", "auprc", "f1", "precision", "recall"]}},
-        {"variant": "without rolling+delta", **{k: without_rolling[k] for k in ["roc_auc", "auprc", "f1", "precision", "recall"]}},
-    ])
-    print(feature_ablation_df.to_string(index=False))
-    feature_ablation_df.to_csv(out_dir / "ablation_features.csv", index=False)
-    del train_resampled_df
-    gc.collect()
+
+    # --skip_phases lets a resumed run redo only the phases whose outputs are
+    # stale. Phases 2a/2b each retrain LightGBM and stream the full 145M-row
+    # test set (tens of minutes apiece), so re-running everything after a crash
+    # or a machine hiccup is pure waste when 2a already succeeded.
+    skip = {p.strip().lower() for p in str(args.skip_phases).split(",") if p.strip()}
+    if "2a" in skip and (out_dir / "ablation_features.csv").exists():
+        print("[SKIP] phase 2a requested and ablation_features.csv exists -- skipping")
+        filtered_cols = None
+        train_resampled_df = None
+    else:
+        train_resampled_df, all_feature_cols = lgbm_mod.load_train_chunked(Path(args.train_resampled), args.target)
+    if train_resampled_df is not None:
+        filtered_cols = [c for c in all_feature_cols if "_roll" not in c and "_delta" not in c]
+        print(f"[ABLATION] Using {len(filtered_cols)}/{len(all_feature_cols)} feature columns")
+        without_rolling = train_and_stream_evaluate(
+            train_resampled_df, filtered_cols, args.target, Path(args.val), Path(args.test),
+            cost_matrix, args.ablation_n_trials, lgbm_mod
+        )
+        feature_ablation_df = pd.DataFrame([
+            {"variant": "full (with rolling+delta)", **{k: with_rolling[k] for k in ["roc_auc", "auprc", "f1", "precision", "recall"]}},
+            {"variant": "without rolling+delta", **{k: without_rolling[k] for k in ["roc_auc", "auprc", "f1", "precision", "recall"]}},
+        ])
+        print(feature_ablation_df.to_string(index=False))
+        feature_ablation_df.to_csv(out_dir / "ablation_features.csv", index=False)
+        del train_resampled_df
+        gc.collect()
 
     print("\n=== 2b. Ablation: with vs without Stage 5 imbalance handling ===")
-    train_sample_df, full_feature_cols = load_train_sample_chunked(
-        Path(args.train_full), args.target, args.ablation_2b_sample_rows, lgbm_mod
-    )
-    without_imbalance = train_and_stream_evaluate(
-        train_sample_df, full_feature_cols, args.target, Path(args.val), Path(args.test),
-        cost_matrix, args.ablation_n_trials, lgbm_mod
-    )
-    del train_sample_df
-    gc.collect()
-    imbalance_ablation_df = pd.DataFrame([
-        {"variant": "with imbalance handling (resampled)", **{k: with_rolling[k] for k in ["roc_auc", "auprc", "f1", "precision", "recall"]}},
-        {"variant": "without imbalance handling (unresampled prefix sample)",
-         **{k: without_imbalance[k] for k in ["roc_auc", "auprc", "f1", "precision", "recall"]}},
-    ])
-    print(imbalance_ablation_df.to_string(index=False))
-    imbalance_ablation_df.to_csv(out_dir / "ablation_imbalance.csv", index=False)
+    if "2b" in skip and (out_dir / "ablation_imbalance.csv").exists():
+        print("[SKIP] phase 2b requested and ablation_imbalance.csv exists -- skipping")
+    else:
+        train_sample_df, full_feature_cols = load_train_sample_chunked(
+            Path(args.train_full), args.target, args.ablation_2b_sample_rows, lgbm_mod
+        )
+        without_imbalance = train_and_stream_evaluate(
+            train_sample_df, full_feature_cols, args.target, Path(args.val), Path(args.test),
+            cost_matrix, args.ablation_n_trials, lgbm_mod
+        )
+        del train_sample_df
+        gc.collect()
+        imbalance_ablation_df = pd.DataFrame([
+            {"variant": "with imbalance handling (resampled)", **{k: with_rolling[k] for k in ["roc_auc", "auprc", "f1", "precision", "recall"]}},
+            {"variant": "without imbalance handling (unresampled prefix sample)",
+             **{k: without_imbalance[k] for k in ["roc_auc", "auprc", "f1", "precision", "recall"]}},
+        ])
+        print(imbalance_ablation_df.to_string(index=False))
+        imbalance_ablation_df.to_csv(out_dir / "ablation_imbalance.csv", index=False)
 
     print("\n=== 3. Generalizability by drive model ===")
-    gen_report = generalizability_report(
-        args.test, args.lgbm_test_probs, with_rolling["threshold"], args.target, lgbm_mod
-    )
-    print(gen_report.to_string(index=False))
-    gen_report.to_csv(out_dir / "generalizability.csv", index=False)
+    if "3" in skip and (out_dir / "generalizability.csv").exists():
+        print("[SKIP] phase 3 requested and generalizability.csv exists -- skipping")
+    else:
+        gen_report = generalizability_report(
+            args.test, args.lgbm_test_probs, with_rolling["threshold"], args.target, lgbm_mod
+        )
+        print(gen_report.to_string(index=False))
+        gen_report.to_csv(out_dir / "generalizability.csv", index=False)
 
     print(f"\n[SAVE] {out_dir/'full_comparison.csv'}")
     print(f"[SAVE] {out_dir/'ablation_features.csv'}")

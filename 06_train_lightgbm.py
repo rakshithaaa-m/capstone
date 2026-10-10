@@ -77,6 +77,22 @@ NON_FEATURE_COLS = [
 ]
 ROW_CHUNK_SIZE = 500_000
 PREDICT_CHUNK_SIZE = 200_000
+
+# Infrastructure / deployment identifiers.  These are NOT SMART health
+# signals -- they encode which datacenter, pod, or slot a drive occupies.
+# SHAP ranked vault_id as the single strongest driver (mean |SHAP| 0.293,
+# ahead of error_total at 0.211), and fix1_vault_id_ablation.py measured that
+# REMOVING them raises test AUPRC by 3.3%.  A model whose top feature is
+# datacenter identity will not transfer to an unseen site, so they are
+# excluded by default.  Override with --keep_infra_features if a reviewer
+# asks for the original configuration.
+INFRA_FEATURE_COLS = [
+    "vault_id",
+    "pod_id",
+    "cluster_id",
+    "pod_slot_num",
+    "is_legacy_format",
+]
 VAL_TUNING_SAMPLE_ROWS = 5_000_000  # fixed sample used ONLY for Optuna's
                                      # repeated trials, never for any final
                                      # reported number.
@@ -125,9 +141,18 @@ def coerce_legacy_format(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def get_feature_cols(df: pd.DataFrame, target: str) -> list[str]:
+def get_feature_cols(df: pd.DataFrame, target: str,
+                     extra_exclude: list[str] | None = None) -> list[str]:
     exclude = set(NON_FEATURE_COLS) | {target}
     exclude |= {c for c in df.columns if c.startswith("failure_within_") and c != target}
+    if extra_exclude:
+        present = [c for c in extra_exclude if c in df.columns]
+        missing = [c for c in extra_exclude if c not in df.columns]
+        if missing:
+            print(f"[FEATURES] requested exclusions not present in the data, ignoring: {missing}")
+        if present:
+            print(f"[FEATURES] Excluding {len(present)} infrastructure identifier(s): {present}")
+        exclude |= set(present)
     cols = [c for c in df.columns if c not in exclude]
 
     df = coerce_legacy_format(df)
@@ -145,7 +170,8 @@ def downcast_floats(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return df
 
 
-def load_train_chunked(path: Path, target: str) -> tuple[pd.DataFrame, list[str]]:
+def load_train_chunked(path: Path, target: str,
+                       extra_exclude: list[str] | None = None) -> tuple[pd.DataFrame, list[str]]:
     parquet_file = pq.ParquetFile(path)
     feature_cols = None
     chunks = []
@@ -153,7 +179,7 @@ def load_train_chunked(path: Path, target: str) -> tuple[pd.DataFrame, list[str]
     for batch in parquet_file.iter_batches(batch_size=ROW_CHUNK_SIZE):
         df = batch.to_pandas()
         if feature_cols is None:
-            feature_cols = get_feature_cols(df, target)
+            feature_cols = get_feature_cols(df, target, extra_exclude)
         else:
             df = coerce_legacy_format(df)
         df = downcast_floats(df, feature_cols)
@@ -199,8 +225,14 @@ def stream_predict_booster(booster: lgb.Booster, path: Path, feature_cols: list[
     total_rows = pq.ParquetFile(path).metadata.num_rows
     out_probs = np.empty(total_rows, dtype="float32")
     out_labels = np.empty(total_rows, dtype="int8")
-    out_serials = np.empty(total_rows, dtype=object)
-    out_dates = np.empty(total_rows, dtype=object)
+    # Join keys are stored as fixed-width byte arrays, not object arrays.
+    # A 145M-row object array holds 145M PyObject pointers PLUS the interned
+    # string objects behind them -- several GB apiece, and two of them is
+    # what pushed this job past the machine's available RAM on the 5-booster
+    # ensemble pass.  "<U20" is 20 bytes/row (160 MB at 145M) and byte order
+    # is irrelevant for an opaque join key; dates become "<U10" (YYYY-MM-DD).
+    out_serials = np.empty(total_rows, dtype="S20")
+    out_dates = np.empty(total_rows, dtype="S10")
 
     read_cols = feature_cols + [target, "serial_number", "date"]
     parquet_file = pq.ParquetFile(path)
@@ -216,8 +248,8 @@ def stream_predict_booster(booster: lgb.Booster, path: Path, feature_cols: list[
 
         out_probs[pos:pos + n] = probs
         out_labels[pos:pos + n] = df[target].to_numpy()
-        out_serials[pos:pos + n] = df["serial_number"].to_numpy()
-        out_dates[pos:pos + n] = df["date"].to_numpy()
+        out_serials[pos:pos + n] = df["serial_number"].astype("S20").to_numpy()
+        out_dates[pos:pos + n] = df["date"].astype("S10").to_numpy()
         pos += n
 
         del df, X, probs
@@ -230,6 +262,105 @@ def stream_predict_booster(booster: lgb.Booster, path: Path, feature_cols: list[
     # pos should equal total_rows, but slice defensively in case parquet
     # metadata and actual row count ever disagree
     return out_labels[:pos], out_probs[:pos], out_serials[:pos], out_dates[:pos]
+
+
+def decode_keys(arr: np.ndarray) -> np.ndarray:
+    """Turn a fixed-width byte array back into a pandas string Series.
+
+    The streaming path stores join keys as '<U20'/'<U10' byte arrays to keep
+    peak memory flat on a 145M-row split.  Pandas writes np.bytes_ as
+    ``b'ZA1C0JYE'`` into CSV, which would silently corrupt every downstream
+    join, so decode once at write time.
+    """
+    return pd.Series(arr).str.decode("utf-8", errors="replace")
+
+
+def ck_sig_of(boosters: list) -> str:
+    """Stable identity for an ensemble, so a checkpoint built from one seed
+    list is never reused for a different one."""
+    parts = []
+    for b in boosters:
+        f = getattr(b, "model_file", None) or getattr(b, "name", None) or repr(b)
+        parts.append(Path(str(f)).name if isinstance(f, str) else str(f))
+    return ",".join(parts)
+
+
+def stream_predict_ensemble(boosters: list, path: Path, feature_cols: list[str],
+                            target: str, ckpt_dir: Path | None = None):
+    """Average the probability output of several boosters over one split.
+
+    Re-uses the single-model streaming path once per booster and averages the
+    result.  Memory cost is one extra full-size float32 array (the accumulated
+    average), not N copies of the chunk data, and the parquet is re-read per
+    booster -- slower, but it keeps peak RSS identical to the single-model
+    case, which matters on a 16 GB laptop.
+
+    If ``ckpt_dir`` is given, the running sum is written there after every pass
+    together with the join keys, labels and pass count.  A 5-pass ensemble over
+    145M rows can run for many hours, and an OOM kill near the end otherwise
+    throws all of it away.  A completed checkpoint is reused on the next run,
+    so a retry resumes at the pass after the last one recorded.
+    """
+    n_models = len(boosters)
+    if n_models == 1 and ckpt_dir is None:
+        return stream_predict_booster(boosters[0], path, feature_cols, target)
+
+    ckpt_dir = Path(ckpt_dir) if ckpt_dir else None
+    if ckpt_dir is not None:
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    acc = labels = serials = dates = None
+    start_pass = 1
+    if ckpt_dir is not None:
+        done = ckpt_dir / "acc.npy"
+        meta_p = ckpt_dir / "meta.npz"
+        if done.exists() and meta_p.exists():
+            try:
+                m = np.load(meta_p, allow_pickle=False)
+                ck_done = int(m["passes_done"])
+                ck_total = int(m["n_models_total"])
+                ck_sig = str(m["signature"])
+                # A checkpoint is only valid for the SAME ensemble it was built
+                # from.  Reusing a sum from a different seed list would divide a
+                # 2-model partial sum by 3 and silently produce wrong
+                # probabilities, so verify the identity before trusting it.
+                sig = f"{n_models}|{getattr(ckpt_dir, '_sig', '')}"
+                if ck_total == n_models and ck_sig == ck_sig_of(boosters) and n_models > 1:
+                    acc = np.load(done)
+                    labels, serials, dates = m["labels"], m["serials"], m["dates"]
+                    start_pass = ck_done + 1
+                    print(f"[RESUME] checkpoint valid: {ck_done}/{n_models} passes already "
+                          f"accumulated, resuming at pass {start_pass}")
+                else:
+                    print(f"[RESUME] checkpoint IGNORED: it was built for {ck_total} boosters "
+                          f"(signature {ck_sig}) but this run has {n_models} "
+                          f"(signature {ck_sig_of(boosters)}). Restarting from pass 1.")
+            except Exception as exc:
+                print(f"[RESUME] checkpoint unreadable ({exc}); restarting from pass 1")
+                acc = labels = serials = dates = None
+                start_pass = 1
+
+    for i in range(start_pass, n_models + 1):
+        print(f"[ENSEMBLE]   pass {i}/{n_models}")
+        labels, probs, serials, dates = stream_predict_booster(
+            boosters[i - 1], path, feature_cols, target
+        )
+        # float32 accumulation: 5 summed probabilities stay well inside
+        # float32 precision, and it halves the accumulator (0.58 GB vs 1.16 GB
+        # at 145M rows) which matters when the process is already near the
+        # machine's memory ceiling.
+        acc = probs.copy() if acc is None else acc + probs
+        del probs
+        gc.collect()
+        if ckpt_dir is not None:
+            np.save(ckpt_dir / "acc.npy", acc)
+            np.savez(ckpt_dir / "meta.npz", labels=labels, serials=serials,
+                     dates=dates, passes_done=np.int64(i),
+                     n_models_total=np.int64(n_models),
+                     signature=np.array(ck_sig_of(boosters)))
+            print(f"[CHECKPOINT] pass {i}/{n_models} saved to {ckpt_dir}")
+
+    return labels, (acc / n_models).astype(np.float32), serials, dates
 
 
 def tune_with_optuna(X_train, y_train, X_val_sample, y_val_sample, n_trials: int, seed: int = 42) -> dict:
@@ -267,6 +398,17 @@ def tune_with_optuna(X_train, y_train, X_val_sample, y_val_sample, n_trials: int
     return study.best_params
 
 
+def parse_seeds(spec: str) -> list[int]:
+    """Parse a seed list like '42' or '42,7,13,99,23'."""
+    parts = [p.strip() for p in str(spec).split(",") if p.strip()]
+    if not parts:
+        raise ValueError("--seeds produced no integers")
+    seeds = [int(p) for p in parts]
+    if len(set(seeds)) != len(seeds):
+        raise ValueError(f"--seeds contains duplicates: {seeds}")
+    return seeds
+
+
 def select_cost_optimal_threshold(y_val, probs_val, fn_cost: float, fp_cost: float) -> float:
     thresholds = np.linspace(0.01, 0.99, 99)
     best_thresh, best_cost = 0.5, np.inf
@@ -299,8 +441,10 @@ def run_train_mode(args) -> None:
     models_dir.mkdir(parents=True, exist_ok=True)
     results_dir.mkdir(parents=True, exist_ok=True)
 
+    exclude_cols = None if args.keep_infra_features else list(INFRA_FEATURE_COLS)
+
     print("[LOAD] Reading resampled training set (chunked, downcast to float32 as it goes)...")
-    train_df, feature_cols = load_train_chunked(Path(args.train), args.target)
+    train_df, feature_cols = load_train_chunked(Path(args.train), args.target, exclude_cols)
     print(f"Using {len(feature_cols)} feature columns")
 
     X_train, y_train = train_df[feature_cols], train_df[args.target]
@@ -316,22 +460,46 @@ def run_train_mode(args) -> None:
     del X_val_sample, y_val_sample
     gc.collect()
 
-    final_params = {**best_params, "objective": "binary", "metric": "average_precision", "verbosity": -1, "random_state": 42}
-    model = lgb.LGBMClassifier(**final_params)
-    model.fit(X_train, y_train)
+    # Multi-seed ensemble.  GBDTs are stochastic (feature/row subsampling), so
+    # averaging a handful of independently seeded models is a cheap, reliable
+    # variance reduction.  The FIRST seed is also written to lgbm_model.txt so
+    # every downstream consumer (SHAP Stage 11, the ablation scripts) keeps
+    # working unchanged; the full ensemble is saved separately for predict
+    # mode to average.
+    seeds = parse_seeds(args.seeds)
+    print(f"[SEEDS] Training {len(seeds)} model(s) with seeds {seeds}")
+    models = []
+    for i, seed in enumerate(seeds, start=1):
+        params = {**best_params, "objective": "binary", "metric": "average_precision",
+                  "verbosity": -1, "random_state": seed}
+        m = lgb.LGBMClassifier(**params)
+        m.fit(X_train, y_train)
+        models.append(m)
+        print(f"[SEEDS]   {i}/{len(seeds)} fitted (seed={seed})")
+        if i == 1:
+            m.booster_.save_model(str(models_dir / "lgbm_model.txt"))
+
+    if len(models) > 1:
+        for m, seed in zip(models, seeds):
+            m.booster_.save_model(str(models_dir / f"lgbm_model_seed{seed}.txt"))
+        print(f"[SEEDS] Saved {len(models)} boosters for ensemble averaging")
+
     del train_df, X_train, y_train
     gc.collect()
 
-    model.booster_.save_model(str(models_dir / "lgbm_model.txt"))
     with open(models_dir / "lgbm_feature_cols.json", "w") as f:
         json.dump({"feature_cols": feature_cols, "target": args.target}, f, indent=2)
     with open(models_dir / "lgbm_best_params.json", "w") as f:
         json.dump(best_params, f, indent=2)
+    with open(models_dir / "lgbm_ensemble_seeds.json", "w") as f:
+        json.dump({"seeds": seeds, "n_models": len(models),
+                   "excluded_features": exclude_cols or []}, f, indent=2)
 
     print(f"\n[DONE -- TRAIN MODE] Model trained and saved.")
     print(f"[SAVE] {models_dir/'lgbm_model.txt'}")
     print(f"[SAVE] {models_dir/'lgbm_feature_cols.json'}")
-    print(f"       Close this window and run --mode predict as a separate, fresh command.")
+    print(f"[SAVE] {models_dir/'lgbm_ensemble_seeds.json'}")
+    print(f"       Run --mode predict as a separate, fresh command.")
 
 
 def run_predict_mode(args) -> None:
@@ -352,12 +520,25 @@ def run_predict_mode(args) -> None:
     with open(args.cost_matrix) as f:
         cost_matrix = json.load(f)
 
-    print("[LOAD] Loading trained model from disk (fresh process, no training history)...")
-    booster = lgb.Booster(model_file=str(models_dir / "lgbm_model.txt"))
+    print("[LOAD] Loading trained model(s) from disk (fresh process, no training history)...")
+    ens_path = models_dir / "lgbm_ensemble_seeds.json"
+    boosters = []
+    if ens_path.exists():
+        with open(ens_path) as f:
+            ens_meta = json.load(f)
+        for sd in ens_meta.get("seeds", []):
+            p = models_dir / f"lgbm_model_seed{sd}.txt"
+            if p.exists():
+                boosters.append(lgb.Booster(model_file=str(p)))
+        if boosters:
+            print(f"[ENSEMBLE] Averaging {len(boosters)} boosters: {ens_meta.get('seeds')}")
+    if not boosters:
+        boosters = [lgb.Booster(model_file=str(models_dir / "lgbm_model.txt"))]
+        print("[ENSEMBLE] Single model (no seed files found) -- not averaging")
 
     print("[STREAM] Predicting on FULL validation set (chunked) for threshold selection...")
-    y_val_full, val_probs_full, val_serials, val_dates = stream_predict_booster(
-        booster, Path(args.val), feature_cols, target
+    y_val_full, val_probs_full, val_serials, val_dates = stream_predict_ensemble(
+        boosters, Path(args.val), feature_cols, target
     )
     threshold = select_cost_optimal_threshold(
         y_val_full, val_probs_full, cost_matrix["false_negative_cost"], cost_matrix["false_positive_cost"]
@@ -368,16 +549,28 @@ def run_predict_mode(args) -> None:
     # reliable join key rather than assuming row order matches the LSTM's
     # full-fleet output, which is chunked/sorted differently.
     pd.DataFrame({
-        "serial_number": val_serials, "date": val_dates,
+        "serial_number": decode_keys(val_serials), "date": decode_keys(val_dates),
         "lgbm_prob": val_probs_full, target: y_val_full,
     }).to_csv(results_dir / "lgbm_val_probs.csv", index=False)
     del y_val_full, val_probs_full, val_serials, val_dates
     gc.collect()
 
     print("[STREAM] Predicting on FULL test set (chunked) for final evaluation...")
-    y_test_full, test_probs_full, test_serials, test_dates = stream_predict_booster(
-        booster, Path(args.test), feature_cols, target
+    y_test_full, test_probs_full, test_serials, test_dates = stream_predict_ensemble(
+        boosters, Path(args.test), feature_cols, target,
+        ckpt_dir=(results_dir / "_ens_ckpt_test") if args.ensemble_ckpt else None,
     )
+    if args.ensemble_ckpt:
+        ck = results_dir / "_ens_ckpt_test"
+        for f in ("acc.npy", "meta.npz"):
+            try:
+                (ck / f).unlink()
+            except OSError:
+                pass
+        try:
+            ck.rmdir()
+        except OSError:
+            pass
     metrics = evaluate(y_test_full, test_probs_full, threshold)
     print("[TEST METRICS]")
     for k, v in metrics.items():
@@ -386,7 +579,7 @@ def run_predict_mode(args) -> None:
     with open(models_dir / "lgbm_threshold.json", "w") as f:
         json.dump({"threshold": threshold, "target": target, "feature_cols": feature_cols}, f, indent=2)
     pd.DataFrame({
-        "serial_number": test_serials, "date": test_dates,
+        "serial_number": decode_keys(test_serials), "date": decode_keys(test_dates),
         "lgbm_prob": test_probs_full, target: y_test_full,
     }).to_csv(results_dir / "lgbm_test_probs.csv", index=False)
     pd.DataFrame([metrics]).to_csv(results_dir / "lgbm_metrics.csv", index=False)
@@ -409,6 +602,20 @@ def main() -> None:
     parser.add_argument("--cost_matrix", type=str, help="Required for --mode predict")
     parser.add_argument("--target", type=str, default="failure_within_14d")
     parser.add_argument("--n_trials", type=int, default=30)
+    parser.add_argument("--seeds", type=str, default="42",
+                        help="Comma-separated random seeds. More than one trains an "
+                             "ensemble whose probabilities are averaged in predict mode. "
+                             "The first seed is always written to lgbm_model.txt so "
+                             "downstream consumers keep working.")
+    parser.add_argument("--ensemble_ckpt", action="store_true",
+                        help="Checkpoint the ensemble accumulator after each pass and resume "
+                             "from it on a later run. Recommended for multi-seed ensembles "
+                             "over very large test splits.")
+    parser.add_argument("--keep_infra_features", action="store_true",
+                        help=f"Keep the infrastructure identifiers {INFRA_FEATURE_COLS}. "
+                             "Off by default: they are not SMART health signals, they rank "
+                             "as the strongest SHAP driver, and removing them raises test "
+                             "AUPRC by ~3.3%.")
     parser.add_argument("--out_dir", nargs=2, default=["models", "results"], metavar=("MODELS_DIR", "RESULTS_DIR"))
     args = parser.parse_args()
 

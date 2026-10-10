@@ -1,0 +1,17 @@
+{
+  "seeds": [
+    42,
+    7,
+    13,
+    99,
+    23
+  ],
+  "n_models": 5,
+  "excluded_features": [
+    "vault_id",
+    "pod_id",
+    "cluster_id",
+    "pod_slot_num",
+    "is_legacy_format"
+  ]
+}

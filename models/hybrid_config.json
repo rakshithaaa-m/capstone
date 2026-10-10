@@ -1,0 +1,18 @@
+{
+  "chosen_strategy": "lgbm_only",
+  "weight_lgbm": 0.6,
+  "horizon_days": 14.0,
+  "meta_coef": [
+    8.789784552013137,
+    -0.0940304152574962
+  ],
+  "meta_intercept": -1.5939397499104357,
+  "rul_encoding": "horizon_bounded",
+  "rul_encoding_formula": "clip((horizon_days - rul_days) / horizon_days, 0, 1)",
+  "candidate_val_auprc": {
+    "lgbm_only": 0.11960830394876511,
+    "weighted": 0.08197480808035112,
+    "meta": 0.11912945610787262
+  },
+  "lgbm_only_is_operational_score": true
+}

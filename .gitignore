@@ -10,16 +10,47 @@ __pycache__/
 # Ignore raw data
 data/
 
-# Ignore huge generated result files
+# --- Regenerable derived artifacts (multi-MB to multi-GB) -------------------
+# Every file below is fully reproducible from data/processed/*.parquet by
+# re-running the documented pipeline stages.  They are excluded to keep the
+# repository reviewable; see 00_setup.md -> "Regenerating excluded artifacts"
+# for the exact commands.
 results/dashboard.duckdb
 results/*.duckdb
+
+# Stage 7/8 per-row exports (GB-scale)
 results/*test_scores.csv
 results/*val_scores.csv
 results/*test_probs.csv
 results/*val_probs.csv
 results/risk_tiers_test.csv
+results/risk_tiers_val.csv
 results/lstm_full_test_preds.csv
 results/lstm_full_val_preds.csv
 
+# Stage 11 SHAP matrices - intermediate, consumed by Stage 12, rebuildable
+results/shap_values.parquet
+results/shap_values_at_risk.parquet
+
+# Stage 12 root-cause mapping - rebuildable from the two SHAP files above
+results/mitigation_mapping.json
+
+# --- Tracked on purpose -----------------------------------------------------
+# models/*.json, models/lgbm_model.txt, models/hybrid_meta_model.pkl,
+# results/*_metrics.csv, results/*_accuracy_*.csv, results/ablation_*.csv,
+# results/baseline_comparison.csv, results/decision_quality.csv,
+# results/shap/*.png
+# These ARE the paper's evidence and must stay in version control.
+
 # Ignore large model weights (if over GitHub's limit)
 models/*.pt
+
+# --- Superseded / scratch artifacts -----------------------------------------
+# Quarantined stale exports kept for provenance. Multi-GB, never tracked.
+results/*.STALE-*.csv
+# Pre-rerun snapshots of the old model's metrics (kept locally as a record,
+# reproducible via RUNBOOK.md, but they describe a model that no longer ships).
+results_before_rerun/
+results/backup_tier1/
+# Ensemble accumulator checkpoints (large scratch, resumable not shareable)
+results/_ens_ckpt_test/
