@@ -78,33 +78,64 @@ def get_feature_cols(df: pd.DataFrame) -> list[str]:
     return cols
 
 
-def find_failing_serials(paths: dict[str, str]) -> tuple[set, dict]:
+def find_failing_serials(paths: dict[str, str], censored_sample: int = 0,
+                         seed: int = 42) -> tuple[set, dict]:
+    """Identify drives to load.
+
+    ``censored_sample`` > 0 additionally loads that many SURVIVING (censored)
+    drives per split.  This matters a great deal: training only on drives that
+    eventually fail means the model never sees a healthy trajectory, yet it is
+    asked at inference to score all ~352k drives, the overwhelming majority of
+    which are healthy.  For those the prediction is unvalidated extrapolation,
+    which is why the exported RUL was physically inverted (drives that failed
+    got LONGER predicted life than survivors).  Censored drives are included
+    under a lower-bound-aware loss in train_model(); they are never used as
+    evaluation targets, because their true RUL is by definition unknown.
+    """
     failing = set()
-    last_date = {}
+    surviving_by_file = {}
     for name, path in paths.items():
         pf = pq.ParquetFile(path)
+        surv = set()
         for batch in pf.iter_batches(columns=["serial_number", "failure"], batch_size=500_000):
             tbl = batch.to_pandas()
-            failing.update(tbl.loc[tbl["failure"] == 1, "serial_number"].tolist())
-    print(f"[SCAN] {len(failing):,} distinct drives fail somewhere across train/val/test -- "
-          f"only these drives' full history will be loaded for training/eval.")
+            # Drop nulls before collecting: a NaN serial arrives as a float and
+            # poisons the sorted() below with a mixed str/float comparison.
+            sn = tbl["serial_number"].dropna()
+            failing.update(sn.loc[tbl.loc[sn.index, "failure"] == 1].tolist())
+            surv.update(sn.loc[tbl.loc[sn.index, "failure"] == 0].tolist())
+        surviving_by_file[name] = surv - failing
 
-    # Second, cheap pass (2 columns only) to find each failing drive's LAST
+    selected = set(failing)
+    if censored_sample > 0:
+        rng = np.random.default_rng(seed)
+        pool = sorted(set().union(*surviving_by_file.values()))
+        take = min(censored_sample, len(pool))
+        chosen = set(rng.choice(pool, size=take, replace=False).tolist())
+        selected |= chosen
+        print(f"[SCAN] + {take:,} randomly sampled SURVIVING drives "
+              "(censored lower-bound loss)")
+    print(f"[SCAN] {len(selected):,} drives selected ({len(failing):,} failing, "
+          f"{len(selected) - len(failing):,} surviving) across train/val/test -- "
+          "only these drives' history will be loaded.")
+
+    # Second, cheap pass (2 columns only) to find each SELECTED drive's LAST
     # recorded date across all three files -- needed so we can bound how
     # much history per drive we load (see --max_history_days). This is far
     # cheaper than the main load: 2 columns vs 217, and only appends a
     # small (serial -> date) dict, never a growing list of full rows.
+    last_date: dict = {}
     for name, path in paths.items():
         pf = pq.ParquetFile(path)
         for batch in pf.iter_batches(columns=["serial_number", "date"], batch_size=500_000):
             df = batch.to_pandas()
-            df = df[df["serial_number"].isin(failing)]
+            df = df[df["serial_number"].isin(selected)]
             if len(df):
                 grp_max = df.groupby("serial_number")["date"].max()
                 for serial, d in grp_max.items():
                     if serial not in last_date or d > last_date[serial]:
                         last_date[serial] = d
-    return failing, last_date
+    return selected, last_date
 
 
 def load_failing_drives_only(path: str, serials: set[str], feature_cols: list[str],
@@ -235,13 +266,19 @@ class LazySequenceDataset(Dataset):
     holds one batch's worth of windows in memory at a time, same as any
     normal PyTorch Dataset."""
 
-    def __init__(self, feat_arr, drive_start_idx, targets, indices, lookback, weights=None):
+    def __init__(self, feat_arr, drive_start_idx, targets, indices, lookback,
+                 weights=None, is_censored=None):
         self.feat_arr = feat_arr
         self.drive_start_idx = drive_start_idx
         self.targets = targets
         self.indices = indices
         self.lookback = lookback
         self.weights = weights if weights is not None else np.ones(len(indices), dtype=np.float32)
+        # Censor flags aligned to `indices` -- only needed for training rows
+        # that include surviving drives. Defaults to all-uncensored so
+        # evaluation datasets (which are failing-drives-only) are unaffected.
+        self.is_censored = (np.zeros(len(indices), dtype=np.float32)
+                            if is_censored is None else np.asarray(is_censored, dtype=np.float32))
 
     def __len__(self):
         return len(self.indices)
@@ -256,7 +293,8 @@ class LazySequenceDataset(Dataset):
         x = torch.from_numpy(window.copy())
         y = torch.tensor(self.targets[global_i], dtype=torch.float32)
         w = torch.tensor(self.weights[i], dtype=torch.float32)
-        return x, y, w
+        c = torch.tensor(self.is_censored[i], dtype=torch.float32)
+        return x, y, w, c
 
 
 class RULDataset(Dataset):
@@ -304,6 +342,24 @@ class AttentionLSTM(nn.Module):
         return F.softplus(self.head(context).squeeze(-1))
 
 
+def censored_hinge_loss(pred: torch.Tensor, lower_bound: torch.Tensor,
+                        is_censored: torch.Tensor) -> torch.Tensor:
+    """Loss for surviving drives, whose true RUL is unknown but bounded below.
+
+    A drive still running on day T has RUL >= T.  That is a ONE-SIDED
+    constraint: predicting longer than T is always acceptable, predicting
+    shorter is a violation.  Squared error would punish both directions
+    equally and force the model to guess an exact value it cannot know.
+
+    So for censored rows the penalty is the hinge (T - pred)_+^2, which is
+    zero once the model predicts at least the observed survival time.  This is
+    the standard survival-analysis treatment of right-censored data and it is
+    what makes it safe to train on healthy drives at all.
+    """
+    violation = torch.clamp(lower_bound - pred, min=0.0)
+    return violation * violation * is_censored
+
+
 def train_model(model, train_loader, val_loader, epochs, lr, device,
                 ckpt_path=None, resume=True):
     """Train with best-validation checkpointing.
@@ -329,11 +385,25 @@ def train_model(model, train_loader, val_loader, epochs, lr, device,
     for epoch in range(start_epoch, epochs + 1):
         model.train()
         train_losses = []
-        for xb, yb, wb in train_loader:
+        for batch in train_loader:
+            # Datasets now yield (x, y, weight, is_censored). Accept the old
+            # 3-tuple too so evaluation-only and older paths keep working.
+            if len(batch) == 4:
+                xb, yb, wb, cb = batch
+                cb = cb.to(device)
+            else:
+                xb, yb, wb = batch
+                cb = torch.zeros_like(yb)
             xb, yb, wb = xb.to(device), yb.to(device), wb.to(device)
             optimizer.zero_grad()
             preds = model(xb)
-            loss = (loss_fn(preds, yb) * wb).sum() / wb.sum().clamp(min=1e-8)
+            sq = loss_fn(preds, yb) * wb
+            # Surviving drives contribute a one-sided lower-bound penalty
+            # instead of a squared error against an unknowable target.
+            sq = sq * (1.0 - cb)
+            if cb.sum() > 0:
+                sq = sq + censored_hinge_loss(preds, yb, cb) * wb
+            loss = sq.sum() / wb.sum().clamp(min=1e-8)
             loss.backward()
             optimizer.step()
             train_losses.append(loss.item())
@@ -341,8 +411,8 @@ def train_model(model, train_loader, val_loader, epochs, lr, device,
         model.eval()
         val_sq = []
         with torch.no_grad():
-            for xb, yb, _ in val_loader:
-                xb, yb = xb.to(device), yb.to(device)
+            for batch in val_loader:
+                xb, yb = batch[0].to(device), batch[1].to(device)
                 val_sq.append(((model(xb) - yb) ** 2).cpu().numpy())
         val_rmse = float(np.sqrt(np.concatenate(val_sq).mean())) if val_sq else float("nan")
 
@@ -404,8 +474,8 @@ def predict_full_fleet(model, path: str, feature_cols: list[str], feat_mean, fea
         loader = DataLoader(RULDataset(X, np.zeros(len(X), dtype=np.float32)), batch_size=256, shuffle=False)
         with torch.no_grad():
             preds = []
-            for xb, _, _ in loader:
-                preds.append(model(xb.to(device)).cpu().numpy())
+            for batch in loader:
+                preds.append(model(batch[0].to(device)).cpu().numpy())
         preds = np.concatenate(preds)
 
         # Defensive clamp.  The Softplus head already guarantees positivity,
@@ -435,6 +505,13 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--hidden_size", type=int, default=32)
     parser.add_argument("--norm_sample_rows", type=int, default=2_000_000)
+    parser.add_argument("--censored_sample", type=int, default=0,
+                        help="Also load this many SURVIVING drives to train on under a "
+                             "one-sided lower-bound loss. 0 (default) reproduces the "
+                             "failing-drives-only behaviour. Training only on drives that "
+                             "fail leaves the model unable to recognise a healthy "
+                             "trajectory at inference, which is where the inverted RUL "
+                             "physics came from.")
     parser.add_argument("--max_history_days", type=int, default=180,
                          help="Only load each failing drive's last N days of history before its "
                               "last recorded date, instead of its entire multi-year lifetime. "
@@ -531,7 +608,7 @@ def main():
     feature_cols = get_feature_cols(peek)
     print(f"Using {len(feature_cols)} feature columns")
 
-    failing_serials, last_date = find_failing_serials(paths)
+    failing_serials, last_date = find_failing_serials(paths, censored_sample=args.censored_sample)
     if len(failing_serials) == 0:
         raise ValueError("No failing drives found in train/val/test -- nothing to train on.")
 
@@ -556,10 +633,17 @@ def main():
     del train_raw
     gc.collect()
 
-    train_idx = np.where(train_arrays["is_censored"] == 0)[0]
+    # Training set: ALL loaded drives. Failing drives contribute a squared error
+    # against their true RUL; surviving drives contribute only a lower-bound
+    # hinge.  Validation stays failing-drives-only so the reported RMSE remains
+    # comparable to every previous run and to the base paper.
+    train_idx = np.arange(len(train_arrays["is_censored"]))
     train_ds = LazySequenceDataset(train_arrays["feat_arr"], train_arrays["drive_start_idx"],
-                                    train_arrays["rul_days"], train_idx, args.lookback)
-    print(f"Training on {len(train_ds)} sequences (all from failing drives, non-censored rows)")
+                                    train_arrays["rul_days"], train_idx, args.lookback,
+                                    is_censored=train_arrays["is_censored"][train_idx])
+    n_cens_train = int(train_arrays["is_censored"][train_idx].sum())
+    print(f"Training on {len(train_ds):,} sequences "
+          f"({len(train_ds) - n_cens_train:,} failing + {n_cens_train:,} surviving/censored)")
 
     val_raw = load_failing_drives_only(args.val, failing_serials, feature_cols, last_date, args.max_history_days)
     print(f"[LOAD] val: {len(val_raw):,} rows loaded (failing drives only)")

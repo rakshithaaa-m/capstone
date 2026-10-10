@@ -130,11 +130,47 @@ def run_xgboost(train_df, feature_cols, target, val_path, test_path, cost_matrix
         return model.predict_proba(X)[:, 1]
 
     y_val, val_probs = stream_predict_sklearn_style(predict_fn, val_path, feature_cols, target, lgbm_mod)
+
+    # Isotonic calibration on the VALIDATION split.
+    #
+    # XGBoost's raw probabilities are not on the same scale as LightGBM's, so
+    # a threshold chosen to minimise cost on one model is meaningless for the
+    # other.  Uncalibrated, the cost-optimal threshold landed ABOVE virtually
+    # every predicted probability: XGBoost then flagged 144,671,771 of
+    # 144,739,479 rows (99.99999%), leaving 19 true negatives, and its
+    # precision/recall/F1 became an artefact of that broken operating point
+    # rather than a measure of model quality.  Isotonic regression maps the
+    # scores onto a common, calibrated probability scale, which makes the
+    # threshold comparison meaningful.  It cannot change ROC-AUC or AP
+    # ordering-based metrics, which is the property we rely on.
+    from sklearn.isotonic import IsotonicRegression
+
+    iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+    iso.fit(val_probs, y_val)
+    val_cal = iso.predict(val_probs)
+
     threshold = lgbm_mod.select_cost_optimal_threshold(
-        y_val, val_probs, cost_matrix["false_negative_cost"], cost_matrix["false_positive_cost"]
+        y_val, val_cal, cost_matrix["false_negative_cost"], cost_matrix["false_positive_cost"]
     )
     y_test, test_probs = stream_predict_sklearn_style(predict_fn, test_path, feature_cols, target, lgbm_mod)
-    return lgbm_mod.evaluate(y_test, test_probs, threshold)
+    test_cal = iso.predict(test_probs)
+    print(f"[CALIBRATION] isotonic on validation; cost-optimal threshold {threshold:.3f}")
+    print(f"[CALIBRATION] raw test prob range {test_probs.min():.4f}..{test_probs.max():.4f} -> "
+          f"calibrated {test_cal.min():.4f}..{test_cal.max():.4f}")
+
+    # Threshold-dependent metrics (precision/recall/F1/confusion matrix) are
+    # computed on the CALIBRATED scores, because the threshold is only
+    # meaningful on that scale.
+    result = lgbm_mod.evaluate(y_test, test_cal, threshold)
+    # Ranking metrics (ROC-AUC, AUPRC) are reported from the RAW scores.
+    # Isotonic regression is monotone but highly tied -- it emits a small set
+    # of step values -- and AP depends on how ties are ordered, so reading AP
+    # off calibrated scores reports an artefact of the calibration, not the
+    # model.  ROC-AUC is tie-insensitive and is unchanged either way.
+    raw_eval = lgbm_mod.evaluate(y_test, test_probs, threshold)
+    result["roc_auc"] = raw_eval["roc_auc"]
+    result["auprc"] = raw_eval["auprc"]
+    return result
 
 
 def main():
