@@ -1,0 +1,2 @@
+best_combiner,gap_mean,ci_lo,ci_hi,wins_pct,n_positives_select,base_auprc
+"B. logistic [prob, risk]",-0.016484766029030092,-0.02456980306331738,-0.009146619522186645,0.0,1353,0.6052611611892701
