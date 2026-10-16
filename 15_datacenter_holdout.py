@@ -17,15 +17,26 @@ what is happening, the model will score well on the datacenters it saw and
 poorly on an unseen one -- which is exactly the situation a reviewer who
 operates a fleet will care about.
 
-This script measures it.  For each held-out datacenter it trains on the
-other sites and scores on the unseen one.  A size-matched RANDOM fold is run
-alongside each datacenter fold: without it, any drop is ambiguous, because
-holding out N drives also means training on less data.  The control spends
-exactly the same amount of training data on a random split, so the difference
-between the two isolates the datacenter shift itself.
+This script measures it.  Three folds run under one protocol:
+  reference   train on every attributed drive, score drives no fold holds out
+  control     train minus a RANDOM split, size-matched to the site fold below
+  datacenter  train minus a whole site, score that unseen site
+
+The control is what makes the result readable.  Without it, any drop is
+ambiguous: it could be the datacenter shift, or simply that holding out N
+drives leaves less training data.  The control spends exactly the same amount
+of training data on a random split, so the difference between control and
+datacenter isolates the shift itself.
 
 Hyperparameters are reused from the shipped model rather than re-tuned per
 fold, so the only thing that varies between folds is which sites were seen.
+
+Two data traps are handled explicitly, because both quietly re-admit the
+held-out site into training: 85% of train_resampled rows carry no datacenter,
+so labels are resolved per SERIAL across all splits rather than taken from
+whichever row comes first; and drives carrying no label in ANY split are
+dropped from the pool for every fold (--keep_unattributed overrides), because
+they cannot be proven to belong to another site.
 
 Usage:
     python 15_datacenter_holdout.py --out results/datacenter_holdout.csv
@@ -52,32 +63,58 @@ def _load_stage6():
 
 
 def _dc_of(paths) -> pd.DataFrame:
-    """Map serial_number -> datacenter, from the feature parquets.
+    """Map serial_number -> datacenter, resolved across the feature parquets.
 
-    Read from every split, not just the test split.  The fold has to EXCLUDE
-    the held-out site's drives from TRAINING, and a drive's training rows are
-    keyed by the same serial.  Building the map from the test parquet alone
-    would leave unlabelled training drives from the held-out site in the
-    training set, quietly reintroducing the very leakage this script exists
-    to rule out.
+    Two traps this has to avoid, both of which leak the held-out site back into
+    training:
+
+    1. Read every split, not just the test split.  A fold excludes held-out
+       drives from TRAINING using this map, and training rows are keyed by the
+       same serial.  Building it from the test parquet alone leaves training
+       drives from the held-out site unlabelled, hence un-dropped.
+
+    2. Resolve NULLs per SERIAL, not per row.  85% of train_resampled rows
+       carry no datacenter, and every drive repeats across splits, so taking
+       the first row per serial keeps the NULL and throws away the real value
+       that appears further down.  That silently dropped 140,327 drives'
+       labels -- out of 380,059 that actually have one.
     """
-    import pyarrow.parquet as pq
+    # Aggregated in DuckDB rather than pandas: the three splits hold ~200M rows
+    # between them, and materialising that as a DataFrame to call dropna() on
+    # costs several GB.  DuckDB streams the column pair and returns one row per
+    # serial.
+    import duckdb
 
-    serials, dcs = [], []
-    for split_path in paths:
-        pf = pq.ParquetFile(split_path)
-        for batch in pf.iter_batches(columns=["serial_number", "datacenter"],
-                                     batch_size=500_000):
-            df = batch.to_pandas()
-            serials.append(df["serial_number"])
-            dcs.append(df["datacenter"])
-    s = pd.concat(serials, ignore_index=True).dropna()
-    d = pd.concat(dcs, ignore_index=True)[s.index]
-    out = pd.DataFrame({"serial_number": s, "datacenter": d}).drop_duplicates("serial_number")
-    # A serial must map to exactly one datacenter; if the splits disagree,
-    # the first appearance wins and the conflict is reported rather than hidden.
-    conflicts = out["datacenter"].value_counts().sum() - out["serial_number"].nunique()
-    return out
+    files = ", ".join("'" + str(Path(p).resolve().as_posix()) + "'" for p in paths)
+    con = duckdb.connect(config={
+        "memory_limit": "3GB",
+        "temp_directory": str(Path.home() / "duck_spool"),
+    })
+    # Project rather than pass read_parquet(columns=...): this DuckDB build
+    # does not accept that named parameter.
+    src = (f"SELECT serial_number, datacenter "
+           f"FROM read_parquet([{files}])")
+    try:
+        conflicts = con.execute(f"""
+            SELECT count(*) FROM (
+                SELECT serial_number FROM ({src})
+                WHERE serial_number IS NOT NULL AND datacenter IS NOT NULL
+                GROUP BY 1 HAVING count(DISTINCT datacenter) > 1)
+        """).fetchone()[0]
+        # min() ignores NULLs, so a serial keeps its real site even when most of
+        # its rows carry no datacenter -- 85% of train_resampled rows are NULL.
+        # Resolving conflicts with min() is deterministic and order-independent.
+        df = con.execute(f"""
+            SELECT serial_number, min(datacenter) AS datacenter
+            FROM ({src})
+            WHERE serial_number IS NOT NULL AND datacenter IS NOT NULL
+            GROUP BY 1
+        """).fetchdf()
+    finally:
+        con.close()
+    print(f"[DC] {len(df):,} drives have a known datacenter; "
+          f"{int(conflicts):,} appear under more than one site (resolved to min)")
+    return df
 
 
 def _serials_in_order(path: Path) -> pd.Series:
@@ -109,6 +146,11 @@ def main() -> None:
     ap.add_argument("--tune", action="store_true",
                     help="Re-run Optuna per fold (slow; also lets each fold "
                          "adapt its hyperparameters to the reduced training set).")
+    ap.add_argument("--keep_unattributed", action="store_true",
+                    help="Keep training rows whose drive has no datacenter label "
+                         "anywhere. Default is to drop them, because such a drive "
+                         "cannot be proven to belong to another site and would "
+                         "therefore re-enter training during a held-out fold.")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--cost_matrix", default="data/processed/cost_matrix.json")
     ap.add_argument("--out", default="results/datacenter_holdout.csv")
@@ -166,10 +208,25 @@ def main() -> None:
             f"serial/target misalignment: {len(train_serials):,} serials vs "
             f"{len(train_df):,} training rows -- refusing to guess the mapping")
     train_dc = train_serials.map(label)
-    unlabelled = int(train_dc.isna().sum())
-    if unlabelled:
-        print(f"[LOAD] {unlabelled:,} training rows have no datacenter label; "
-              "they stay in every fold")
+    n_unlabelled = int(train_dc.isna().sum())
+    if n_unlabelled and not args.keep_unattributed:
+        # ~32% of training rows belong to drives that carry no datacenter in
+        # ANY split -- mostly training-period drives absent from val/test.  We
+        # cannot prove they are not phx1, so keeping them would quietly put the
+        # held-out site back into training and make the holdout partial.  Drop
+        # them from the pool used by EVERY fold, so the control fold still
+        # spends identical training data and the shift stays isolated.
+        print(f"[LOAD] dropping {n_unlabelled:,} training rows "
+              f"({100 * n_unlabelled / len(train_df):.1f}%) whose drive has no "
+              "datacenter label in any split")
+        keep = train_dc.notna().to_numpy()
+        train_df = train_df.loc[keep].reset_index(drop=True)
+        train_dc = train_dc[keep].reset_index(drop=True)
+        train_serials = train_serials[keep].reset_index(drop=True)
+    elif n_unlabelled:
+        print(f"[LOAD] {n_unlabelled:,} training rows have no datacenter label; "
+              "they stay in every fold (--keep_unattributed): the held-out fold "
+              "is therefore PARTIAL")
     train_df = train_df.assign(_dc=train_dc.to_numpy(), _serial=train_serials.to_numpy())
     del train_serials
     gc.collect()
@@ -185,21 +242,31 @@ def main() -> None:
     # ambiguous: it could be the datacenter shift, or simply that holding out
     # N drives leaves less training data.  The control removes that confound by
     # spending exactly the same amount of training data on a random split.
-    folds = ([("datacenter", dc, None) for dc in holdouts]
+    folds = ([("reference", "all-sites", 0)]
+             + [("datacenter", dc, None) for dc in holdouts]
              + [("control", dc, int(counts[dc])) for dc in holdouts])
 
     for kind, label_dc, n_drives in folds:
         fold_kind = f"{kind}:{label_dc}"
-        if kind == "datacenter":
+        if kind == "reference":
+            # In-distribution reference measured under the SAME protocol: train
+            # on every attributed row, score drives no fold holds out. Without
+            # it, the datacenter and control folds have nothing to be compared
+            # against inside this experiment.
+            pool = dc_map.loc[~dc_map["datacenter"].isin(holdouts),
+                              "serial_number"].to_numpy()
+            held = set(rng.choice(pool, size=min(150_000, len(pool)), replace=False))
+            mask = np.ones(len(train_df), dtype=bool)
+        elif kind == "datacenter":
             held = set(dc_map.loc[dc_map["datacenter"] == label_dc, "serial_number"])
             # EXCLUDE the held-out site's drives from TRAINING as well.  Scoring
             # a site the model was fitted on measures nothing about portability.
-            mask = ~train_df["_dc"].eq(label_dc).fillna(False)
+            mask = ~train_df["_dc"].eq(label_dc).fillna(False).to_numpy()
         else:
             pool = dc_map.loc[~dc_map["datacenter"].isin(holdouts),
                               "serial_number"].to_numpy()
             held = set(rng.choice(pool, size=min(n_drives, len(pool)), replace=False))
-            mask = ~train_df["_serial"].isin(held)
+            mask = ~train_df["_serial"].isin(held).to_numpy()
         if not held:
             continue
         train_sub = train_df.loc[mask]
@@ -257,19 +324,29 @@ def main() -> None:
 
     print(f"\n[SAVE] {args.out}")
     if len(out):
+        ref = out[out["kind"] == "reference"]
         dc_rows = out[out["kind"] == "datacenter"]
         ct_rows = out[out["kind"] == "control"]
-        print(f"\nHeld-out AUPRC across {len(dc_rows)} unseen datacenters: "
-              f"{dc_rows['auprc'].min():.4f} .. {dc_rows['auprc'].max():.4f} "
-              f"(median {dc_rows['auprc'].median():.4f})")
+        if len(ref):
+            print(f"\nIn-distribution reference (same protocol): "
+                  f"AUPRC {ref['auprc'].iloc[0]:.4f}")
         if len(ct_rows):
             print(f"Size-matched random-fold control: "
                   f"{ct_rows['auprc'].min():.4f} .. {ct_rows['auprc'].max():.4f} "
                   f"(median {ct_rows['auprc'].median():.4f})")
-            print(f"Datacenter-shift cost (median control - median held-out): "
+        if len(dc_rows):
+            print(f"Held-out UNSEEN datacenters: "
+                  f"{dc_rows['auprc'].min():.4f} .. {dc_rows['auprc'].max():.4f} "
+                  f"(median {dc_rows['auprc'].median():.4f})")
+        if len(dc_rows) and len(ct_rows):
+            print(f"\nDatacenter-shift cost (median control - median held-out): "
                   f"{ct_rows['auprc'].median() - dc_rows['auprc'].median():+.4f} AUPRC")
-        print("Compare against the in-distribution test AUPRC in results/lgbm_metrics.csv.")
-        print("A small gap means the model relies on drive health, not site identity.")
+            print("This is the number to quote: it removes the 'less training "
+                  "data' confound.\nA value near zero means the model relies on "
+                  "drive health, not site identity.")
+        print("\nFor reference, the shipped model scores "
+              f"{pd.read_csv('results/lgbm_metrics.csv')['auprc'].iloc[0]:.5f} "
+              "AUPRC on the full test set (a different, larger training pool).")
 
 
 if __name__ == "__main__":
