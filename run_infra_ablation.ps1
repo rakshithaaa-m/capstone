@@ -54,6 +54,15 @@ function Run-Arm([string]$name, [string[]]$extra) {
     $rdir = "results_ablation\$name"
     New-Item -ItemType Directory -Force -Path $mdir, $rdir | Out-Null
 
+    # A finished arm is never re-run. Re-running predict would cost ~4 hours and
+    # would overwrite an identical result, so treat existing metrics as final.
+    if ((Test-Path "$rdir\lgbm_metrics.csv") -and
+        (Test-Path "$rdir\lgbm_test_probs.csv") -and
+        ((Get-Item "$rdir\lgbm_test_probs.csv").Length -gt 1GB)) {
+        Log "=== ARM $name : COMPLETE (metrics + test probs on disk) -- skipping ==="
+        return
+    }
+
     # Resume-aware: if this arm already finished training, do not retrain --
     # Optuna draws different hyper-parameters each run, so retraining would
     # silently discard the arm's recorded tuning result.

@@ -45,6 +45,7 @@ Usage unchanged — two separate command invocations:
 """
 import argparse
 import gc
+import hashlib
 import json
 import struct
 import sys
@@ -295,11 +296,20 @@ def decode_keys(arr: np.ndarray) -> np.ndarray:
 
 def ck_sig_of(boosters: list) -> str:
     """Stable identity for an ensemble, so a checkpoint built from one seed
-    list is never reused for a different one."""
+    list is never reused for a different one.
+
+    Must NOT fall back to repr(): a Booster's repr contains its object address,
+    so a signature built that way changes on every process start and the
+    checkpoint is rejected after every restart (observed 2026-10-23 -- two
+    completed passes were thrown away).  Hash the model text instead.
+    """
     parts = []
     for b in boosters:
-        f = getattr(b, "model_file", None) or getattr(b, "name", None) or repr(b)
-        parts.append(Path(str(f)).name if isinstance(f, str) else str(f))
+        f = getattr(b, "model_file", None) or getattr(b, "name", None)
+        if isinstance(f, str) and f:
+            parts.append(Path(f).name)
+        else:
+            parts.append(hashlib.sha1(b.model_to_string().encode()).hexdigest()[:16])
     return ",".join(parts)
 
 
