@@ -212,7 +212,7 @@ def load_val_tuning_sample(path: Path, feature_cols: list[str], target: str,
 
 
 def stream_predict_booster(booster: lgb.Booster, path: Path, feature_cols: list[str],
-                            target: str) -> tuple[np.ndarray, np.ndarray]:
+                            target: str, want_keys: bool = True) -> tuple[np.ndarray, np.ndarray]:
     """Pre-allocates the full output arrays up front (size known from parquet
     metadata) instead of accumulating a growing list of per-chunk arrays and
     concatenating at the end. This avoids holding every completed chunk's
@@ -231,8 +231,13 @@ def stream_predict_booster(booster: lgb.Booster, path: Path, feature_cols: list[
     # what pushed this job past the machine's available RAM on the 5-booster
     # ensemble pass.  "<U20" is 20 bytes/row (160 MB at 145M) and byte order
     # is irrelevant for an opaque join key; dates become "<U10" (YYYY-MM-DD).
-    out_serials = np.empty(total_rows, dtype="S20")
-    out_dates = np.empty(total_rows, dtype="S10")
+    # Join keys are byte-identical on every ensemble pass over the same file, so
+    # passes 2..N pass want_keys=False and reuse pass 1's arrays.  Holding two
+    # copies (the retained set plus the in-flight set) is ~9 GB at 145M rows and
+    # drove this machine into paging on 2026-10-23, cutting throughput from
+    # ~20 chunks/min to below 1.
+    out_serials = np.empty(total_rows, dtype="S20") if want_keys else None
+    out_dates = np.empty(total_rows, dtype="S10") if want_keys else None
 
     read_cols = feature_cols + [target, "serial_number", "date"]
     parquet_file = pq.ParquetFile(path)
@@ -248,20 +253,33 @@ def stream_predict_booster(booster: lgb.Booster, path: Path, feature_cols: list[
 
         out_probs[pos:pos + n] = probs
         out_labels[pos:pos + n] = df[target].to_numpy()
-        out_serials[pos:pos + n] = df["serial_number"].astype("S20").to_numpy()
-        out_dates[pos:pos + n] = df["date"].astype("S10").to_numpy()
+        if want_keys:
+            out_serials[pos:pos + n] = df["serial_number"].astype("S20").to_numpy()
+            out_dates[pos:pos + n] = df["date"].astype("S10").to_numpy()
         pos += n
 
         del df, X, probs
         n_chunks += 1
+
+        # Arrow's default pool retains freed blocks for reuse. Over a 145M-row
+        # stream it grows without bound (~10 MB/chunk observed), which drove the
+        # machine into paging and cut throughput from ~25 to <1 chunk/min on
+        # 2026-10-23. Releasing every 10 chunks keeps the pool bounded without
+        # paying the allocator cost on every chunk.
+        if n_chunks % 10 == 0:
+            pa.default_memory_pool().release_unused()
+
         if n_chunks % 20 == 0:
             print(f"[STREAM] {n_chunks} chunk(s) / {pos:,} rows processed so far...")
             log_memory(f"chunk {n_chunks}")
             gc.collect()
+            pa.default_memory_pool().release_unused()
 
     # pos should equal total_rows, but slice defensively in case parquet
     # metadata and actual row count ever disagree
-    return out_labels[:pos], out_probs[:pos], out_serials[:pos], out_dates[:pos]
+    return (out_labels[:pos], out_probs[:pos],
+            out_serials[:pos] if want_keys else None,
+            out_dates[:pos] if want_keys else None)
 
 
 def decode_keys(arr: np.ndarray) -> np.ndarray:
@@ -342,9 +360,15 @@ def stream_predict_ensemble(boosters: list, path: Path, feature_cols: list[str],
 
     for i in range(start_pass, n_models + 1):
         print(f"[ENSEMBLE]   pass {i}/{n_models}")
-        labels, probs, serials, dates = stream_predict_booster(
-            boosters[i - 1], path, feature_cols, target
+        # Only the first pass captures join keys; later passes reuse them.  On a
+        # resume the keys come from the checkpoint, so serials is already set.
+        want_keys = serials is None
+        labels_i, probs, serials_i, dates_i = stream_predict_booster(
+            boosters[i - 1], path, feature_cols, target, want_keys=want_keys
         )
+        if want_keys:
+            labels, serials, dates = labels_i, serials_i, dates_i
+        del labels_i, serials_i, dates_i
         # float32 accumulation: 5 summed probabilities stay well inside
         # float32 precision, and it halves the accumulator (0.58 GB vs 1.16 GB
         # at 145M rows) which matters when the process is already near the
