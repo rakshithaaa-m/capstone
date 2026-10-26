@@ -64,9 +64,17 @@ def build_cache(a_csv: Path, b_csv: Path, test_parquet: Path, out: Path) -> None
     tmp = out.parent / "_duckdb_tmp"
     tmp.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect()
-    con.execute("SET threads=4")
-    con.execute("SET memory_limit='7GB'")
+    con.execute("SET threads=3")
+    con.execute("SET memory_limit='5GB'")
+    con.execute("SET preserve_insertion_order=false")
     con.execute(f"SET temp_directory='{tmp.as_posix()}'")
+
+    # Typed CSV reads: inference would scan each 5 GB file twice, and the
+    # 144.7M-row join is already the memory-critical step.
+    schema = ("{'serial_number':'VARCHAR','date':'DATE',"
+              "'lgbm_prob':'FLOAT','failure_within_14d':'TINYINT'}")
+    a_src = (f"read_csv('{a_csv.as_posix()}', header=true, columns={schema})")
+    b_src = (f"read_csv('{b_csv.as_posix()}', header=true, columns={schema})")
 
     print("[CACHE] vault dimension ...")
     con.execute(f"""
@@ -84,10 +92,11 @@ def build_cache(a_csv: Path, b_csv: Path, test_parquet: Path, out: Path) -> None
         CREATE OR REPLACE TEMP TABLE dim_drive AS
         SELECT serial_number,
                (row_number() OVER (ORDER BY serial_number) - 1)::INTEGER AS drive_id
-        FROM (SELECT DISTINCT serial_number
-              FROM read_csv('{a_csv.as_posix()}', header=true))
+        FROM (SELECT DISTINCT serial_number FROM {a_src})
     """)
     n_drives = con.execute("SELECT count(*) FROM dim_drive").fetchone()[0]
+    dim_drive = con.execute("SELECT serial_number, drive_id FROM dim_drive").df()
+    dim_drive.to_csv(out.with_name(out.stem + "_drive_codes.csv"), index=False)
     print(f"[CACHE] {n_drives:,} drives")
 
     print("[CACHE] drive -> vault (vault is a property of the drive, so this "
@@ -101,16 +110,19 @@ def build_cache(a_csv: Path, b_csv: Path, test_parquet: Path, out: Path) -> None
 
     print("[CACHE] joining arms and writing (this is the expensive step) ...")
     t0 = time.time()
+    # No ORDER BY here.  The pre-registration's ordering requirement exists so
+    # that an *evaluation* cannot depend on row order; AUPRC sorts by score and
+    # ties are grouped, so it is order-invariant.  Sorting 145M rows inside the
+    # COPY is what exhausted the 7 GB budget on the first attempt.
     con.execute(f"""
         COPY (
             SELECT d.drive_id,
-                   CAST(a.lgbm_prob AS FLOAT) AS pA,
-                   CAST(b.lgbm_prob AS FLOAT) AS pB,
-                   CAST(a.failure_within_14d AS TINYINT) AS y,
-                   dv.vid,
-                   CAST(a.date AS DATE) AS dt
-            FROM read_csv('{a_csv.as_posix()}', header=true) a
-            JOIN read_csv('{b_csv.as_posix()}', header=true) b
+                   a.lgbm_prob AS pA,
+                   b.lgbm_prob AS pB,
+                   a.failure_within_14d AS y,
+                   dv.vid
+            FROM {a_src} a
+            JOIN {b_src} b
               ON a.serial_number = b.serial_number AND a.date = b.date
             JOIN dim_drive d
               ON a.serial_number = d.serial_number
@@ -118,13 +130,23 @@ def build_cache(a_csv: Path, b_csv: Path, test_parquet: Path, out: Path) -> None
               ON a.serial_number = t.serial_number
             LEFT JOIN dim_vault dv
               ON t.vault_id = dv.vault_id
-            ORDER BY d.drive_id, a.date
-        ) TO '{out.as_posix()}' (FORMAT PARQUET, COMPRESSION ZSTD)
+        ) TO '{out.as_posix()}' (FORMAT PARQUET, COMPRESSION SNAPPY)
     """)
     print(f"[CACHE] written in {(time.time() - t0) / 60:.1f} min -> {out}")
 
     n = con.execute(f"SELECT count(*) FROM read_parquet('{out.as_posix()}')").fetchone()[0]
     print(f"[CACHE] {n:,} rows")
+
+    # Built-in join check: the test split has a known size and positive count
+    # (from each arm's confusion matrix).  A duplicate or dropped join row shows
+    # up here instead of silently shifting every downstream metric.
+    ref = pd.read_csv(Path("results_ablation") / a_csv.parent.name / "lgbm_metrics.csv")
+    expect_pos = int(ref["tp"].iloc[0] + ref["fn"].iloc[0])
+    got_pos = con.execute(
+        f"SELECT sum(y) FROM read_parquet('{out.as_posix()}')").fetchone()[0]
+    print(f"[CACHE] positives {int(got_pos):,} (expected {expect_pos:,})")
+    if int(got_pos) != expect_pos:
+        raise RuntimeError(f"join lost or duplicated positives: {got_pos} != {expect_pos}")
 
 
 # ---------------------------------------------------------------- statistics
@@ -209,6 +231,9 @@ def main() -> None:
     ap.add_argument("--boot", type=int, default=1000)
     ap.add_argument("--out_prefix", default="results_ablation/ablation")
     ap.add_argument("--rebuild", action="store_true")
+    ap.add_argument("--reuse_bootstrap", action="store_true",
+                    help="reuse saved replicates instead of recomputing them "
+                         "(use when only the per-seed/per-cohort part changed)")
     args = ap.parse_args()
 
     a_dir, b_dir = Path(args.a_dir), Path(args.b_dir)
@@ -231,7 +256,7 @@ def main() -> None:
     pB = tbl["pB"].to_numpy()
     y = tbl["y"].to_numpy()
     drive_id = tbl["drive_id"].to_numpy()
-    vid = tbl["vid"].to_numpy()
+    vid = tbl["vid"].fill_null(-1).to_numpy()
     del tbl
     gc.collect()
 
@@ -251,7 +276,12 @@ def main() -> None:
     print(f"[POINT] delta (A - B)    {delta:+.10f}  "
           f"({100 * delta / apB:+.2f}% relative)")
 
-    gaps = bootstrap_delta(pA, pB, y, drive_id, args.boot)
+    boot_csv = out_prefix.with_name("ablation_bootstrap.csv")
+    if args.reuse_bootstrap and boot_csv.exists():
+        gaps = pd.read_csv(boot_csv)["delta"].to_numpy()
+        print(f"[BOOT] reusing {len(gaps)} saved replicates from {boot_csv}")
+    else:
+        gaps = bootstrap_delta(pA, pB, y, drive_id, args.boot)
     lo, hi = np.percentile(gaps, [2.5, 97.5])
     wins_pct = 100.0 * float((gaps > 0).mean())
     print(f"\n[BOOT] delta {gaps.mean():+.10f}  95% CI [{lo:+.10f}, {hi:+.10f}]  "
@@ -259,8 +289,8 @@ def main() -> None:
 
     # ---- per-seed -------------------------------------------------------
     seed_rows = []
-    pa = a_dir / "per_seed_auprc.csv"
-    pb = b_dir / "per_seed_auprc.csv"
+    pa = a_dir / f"per_seed_full_{a_dir.name}.csv"
+    pb = b_dir / f"per_seed_full_{b_dir.name}.csv"
     wins = 0
     n_seed_pairs = 0
     if pa.exists() and pb.exists():
@@ -272,28 +302,53 @@ def main() -> None:
         m["delta"] = m["auprc_A"] - m["auprc_B"]
         wins = int((m["delta"] > 0).sum())
         n_seed_pairs = int(len(m))
-        print("\n[PER-SEED]")
+        print("\n[PER-SEED] full test split")
         print(m[["seed", "auprc_A", "auprc_B", "delta"]].to_string(index=False))
         print(f"[PER-SEED] A wins {wins}/{len(m)}")
         m.to_csv(out_prefix.with_name("ablation_per_seed.csv"), index=False)
     else:
-        print(f"\n[PER-SEED] missing {pa.name if not pa.exists() else pb.name}; "
-              f"run 17b_per_seed_auprc.py for both arms")
+        print(f"\n[PER-SEED] missing per-seed file for an arm; "
+              f"run 17c_per_seed_full.py on both (expected {pa.name}, {pb.name})")
         wins = -1
 
     # ---- cohort ---------------------------------------------------------
+    # Two distinct novelty channels.  An infrastructure identifier can help by
+    # memorising the site (vault) OR by memorising the individual drive's
+    # history; these are different mechanisms and are measured separately.
     con = duckdb.connect()
-    train_vaults = con.execute(
+    con.execute("SET threads=4")
+    train_vaults = set(con.execute(
         f"SELECT DISTINCT vault_id FROM read_parquet('{Path(args.train).as_posix()}')"
-    ).df()["vault_id"].astype(str)
+    ).df()["vault_id"].astype(str))
+    train_serials = set(con.execute(
+        f"SELECT DISTINCT serial_number FROM read_parquet('{Path(args.train).as_posix()}')"
+    ).df()["serial_number"].astype(str))
+
     codes = pd.read_csv(cache.with_name(cache.stem + "_vault_codes.csv"))
     codes["vault_id"] = codes["vault_id"].astype(str)
-    train_codes = set(codes.loc[codes["vault_id"].isin(set(train_vaults)), "vid"].tolist())
-    unseen = ~np.isin(vid, np.fromiter(train_codes, dtype=np.int64))
-    print(f"\n[COHORT] {100.0 * unseen.mean():.3f}% of test rows in vaults never "
-          f"seen in training ({int(unseen.sum()):,} rows)")
+    train_vids = codes.loc[codes["vault_id"].isin(train_vaults), "vid"].to_numpy()
+    unseen_vault = ~np.isin(vid, train_vids)
+
+    dcodes = pd.read_csv(cache.with_name(cache.stem + "_drive_codes.csv"))
+    drive_seen = np.zeros(int(dcodes["drive_id"].max()) + 1, dtype=bool)
+    seen_ids = dcodes.loc[dcodes["serial_number"].astype(str).isin(train_serials),
+                          "drive_id"].to_numpy()
+    drive_seen[seen_ids] = True
+    unseen_drive = ~drive_seen[drive_id]
+
+    print(f"\n[COHORT] vault novelty: {100.0 * unseen_vault.mean():.3f}% of test rows "
+          f"({int(unseen_vault.sum()):,}) sit in vaults never seen in training")
+    print(f"[COHORT] drive novelty: {100.0 * unseen_drive.mean():.3f}% of test rows "
+          f"({int(unseen_drive.sum()):,}) belong to drives never seen in training")
+
     cohort = []
-    for name, m_ in (("seen", ~unseen), ("unseen", unseen)):
+    splits = [
+        ("vault_seen", "vault", ~unseen_vault),
+        ("vault_unseen", "vault", unseen_vault),
+        ("drive_seen", "drive", ~unseen_drive),
+        ("drive_unseen", "drive", unseen_drive),
+    ]
+    for name, dim, m_ in splits:
         if m_.sum() == 0:
             continue
         yy = y[m_]
@@ -303,13 +358,13 @@ def main() -> None:
         a_ = float(average_precision_score(yy, pA[m_]))
         b_ = float(average_precision_score(yy, pB[m_]))
         cohort.append({
-            "cohort": name, "rows": int(m_.sum()),
+            "cohort": name, "dimension": dim, "rows": int(m_.sum()),
             "positives": int(yy.sum()), "prevalence": float(yy.mean()),
             "auprc_A": a_, "auprc_B": b_, "delta": a_ - b_,
             "roc_A": float(roc_auc_score(yy, pA[m_])),
             "roc_B": float(roc_auc_score(yy, pB[m_])),
         })
-        print(f"[COHORT] {name}: rows {int(m_.sum()):,}  pos {int(yy.sum()):,}  "
+        print(f"[COHORT] {name:<13} rows {int(m_.sum()):>10,}  pos {int(yy.sum()):>6,}  "
               f"AUPRC A {a_:.6f} B {b_:.6f} delta {a_ - b_:+.6f}")
     pd.DataFrame(cohort).to_csv(out_prefix.with_name("cohort_test.csv"), index=False)
 
