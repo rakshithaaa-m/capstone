@@ -289,8 +289,8 @@ def main() -> None:
 
     # ---- per-seed -------------------------------------------------------
     seed_rows = []
-    pa = a_dir / f"per_seed_full_{a_dir.name}.csv"
-    pb = b_dir / f"per_seed_full_{b_dir.name}.csv"
+    pa = Path("results_ablation") / f"per_seed_full_{a_dir.name}.csv"
+    pb = Path("results_ablation") / f"per_seed_full_{b_dir.name}.csv"
     wins = 0
     n_seed_pairs = 0
     if pa.exists() and pb.exists():
