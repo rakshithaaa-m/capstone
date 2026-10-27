@@ -54,3 +54,8 @@ results_before_rerun/
 results/backup_tier1/
 # Ensemble accumulator checkpoints (large scratch, resumable not shareable)
 results/_ens_ckpt_test/
+
+# --- Amendment 03 fusion-partner study ---------------------------------------
+# Per-row partner predictions (GB-scale), regenerable by 20_/22_/... scripts.
+results_fusion/*_preds.csv
+results_fusion/*.partial

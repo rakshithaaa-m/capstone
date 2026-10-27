@@ -1,0 +1,6 @@
+combiner,features,auprc,lgbm_only_auprc,delta,n_features
+A. intercept only (sanity),prob,0.008779956002881227,0.6052611611892701,-0.5964812051863889,1
+"B. logistic [prob, risk]",prob+risk,0.5454073340550265,0.6052611611892701,-0.05985382713424359,2
+"C. GBDT stacker [prob, risk]",prob+risk,0.5498259620498372,0.6052611611892701,-0.055435199139432845,2
+D. GBDT + engineered,prob+risk+prob_x_risk+rul_log+prob_high+risk_high+rul_frac,0.5658155536238968,0.6052611611892701,-0.0394456075653733,7
+E. GBDT prob-only (control),prob,0.5361163095083592,0.6052611611892701,-0.06914485168091089,1

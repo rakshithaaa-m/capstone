@@ -1,0 +1,2 @@
+best_combiner,gap_mean,ci_lo,ci_hi,wins_pct,n_positives_select,base_auprc
+D. GBDT + engineered,-0.03928524050820861,-0.05025253823255296,-0.02792781478837302,0.0,1353,0.6052611611892701

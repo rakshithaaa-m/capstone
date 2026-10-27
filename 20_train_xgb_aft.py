@@ -188,7 +188,7 @@ def stream_predict(bst, path: Path, feature_cols: list[str], out_csv: Path,
                 "serial_number": tbl.column("serial_number").to_pandas(),
                 "date": pd.to_datetime(tbl.column("date").to_pandas()).dt.strftime("%Y-%m-%d"),
                 PRED_COL: pred.astype(np.float32),
-            }).to_csv(fh, header=False, index=False)
+            }).to_csv(fh, header=False, index=False, lineterminator="\n")
             n += len(pred)
             if k % 100 == 0:
                 print(f"[PREDICT] {path.name} group {k + 1}/{len(groups)}  rows {n:,}  "

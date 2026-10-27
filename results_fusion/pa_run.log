@@ -1,0 +1,70 @@
+[SETUP] xgboost 3.4.1, 212 features, seed 42
+[LOAD] last-observed dates per drive (train, val) ...
+[LOAD] training rows ...
+[LOAD] train 3,440,506 rows, censored 84.95%, dropped 2,292 post-failure rows (260 drives)
+[LOAD] validation tuning sample (fixed prefix, as Stage 6) ...
+[LOAD] val sample 5,000,000 rows, censored 97.91%, dropped 1,621 post-failure rows
+[OPTUNA] 30 trials minimising validation aft-nloglik ...
+[OPTUNA] trial  0  val aft-nloglik 0.27661  rounds 138
+[OPTUNA] trial  1  val aft-nloglik 0.21141  rounds 26
+[OPTUNA] trial  2  val aft-nloglik 0.18846  rounds 173
+[OPTUNA] trial  3  val aft-nloglik 0.19161  rounds 187
+[OPTUNA] trial  4  val aft-nloglik 0.19110  rounds 66
+[OPTUNA] trial  5  val aft-nloglik 0.19076  rounds 31
+[OPTUNA] trial  6  val aft-nloglik 0.19888  rounds 373
+[OPTUNA] trial  7  val aft-nloglik 0.19839  rounds 258
+[OPTUNA] trial  8  val aft-nloglik 0.19046  rounds 244
+[OPTUNA] trial  9  val aft-nloglik 0.19370  rounds 122
+[OPTUNA] trial 10  val aft-nloglik 0.19593  rounds 60
+[OPTUNA] trial 11  val aft-nloglik 0.18770  rounds 145
+[OPTUNA] trial 12  val aft-nloglik 0.18792  rounds 117
+[OPTUNA] trial 13  val aft-nloglik 0.19244  rounds 87
+[OPTUNA] trial 14  val aft-nloglik 0.18708  rounds 77
+[OPTUNA] trial 15  val aft-nloglik 0.18943  rounds 58
+[OPTUNA] trial 16  val aft-nloglik 0.19594  rounds 72
+[OPTUNA] trial 17  val aft-nloglik 0.18848  rounds 41
+[OPTUNA] trial 18  val aft-nloglik 0.18873  rounds 83
+[OPTUNA] trial 19  val aft-nloglik 0.19301  rounds 148
+[OPTUNA] trial 20  val aft-nloglik 0.18785  rounds 20
+[OPTUNA] trial 21  val aft-nloglik 0.18827  rounds 16
+[OPTUNA] trial 22  val aft-nloglik 0.23038  rounds 13
+[OPTUNA] trial 23  val aft-nloglik 0.19618  rounds 35
+[OPTUNA] trial 24  val aft-nloglik 0.18911  rounds 81
+[OPTUNA] trial 25  val aft-nloglik 0.19174  rounds 38
+[OPTUNA] trial 26  val aft-nloglik 0.20670  rounds 116
+[OPTUNA] trial 27  val aft-nloglik 0.19212  rounds 26
+[OPTUNA] trial 28  val aft-nloglik 0.18988  rounds 88
+[OPTUNA] trial 29  val aft-nloglik 0.19432  rounds 105
+[OPTUNA] best {'learning_rate': 0.08050133467208365, 'max_depth': 3, 'min_child_weight': 1.0238685663156577, 'subsample': 0.7424083556223253, 'colsample_bytree': 0.7916135769831637, 'reg_lambda': 0.45042834710787116, 'aft_loss_distribution_scale': 1.5745487185553344}  rounds 77
+[SAVE] models_fusion\pa_xgb_aft.json
+[PREDICT] features_val.parquet group 1/1390  rows 53,270  2s
+[PREDICT] features_val.parquet group 101/1390  rows 3,975,964  20s
+[PREDICT] features_val.parquet group 201/1390  rows 7,599,225  35s
+[PREDICT] features_val.parquet group 301/1390  rows 11,407,699  51s
+[PREDICT] features_val.parquet group 401/1390  rows 15,309,969  67s
+[PREDICT] features_val.parquet group 501/1390  rows 19,029,691  83s
+[PREDICT] features_val.parquet group 601/1390  rows 22,711,392  98s
+[PREDICT] features_val.parquet group 701/1390  rows 26,717,374  114s
+[PREDICT] features_val.parquet group 801/1390  rows 30,460,800  130s
+[PREDICT] features_val.parquet group 901/1390  rows 34,129,892  146s
+[PREDICT] features_val.parquet group 1001/1390  rows 38,047,222  162s
+[PREDICT] features_val.parquet group 1101/1390  rows 41,865,150  178s
+[PREDICT] features_val.parquet group 1201/1390  rows 45,606,703  194s
+[PREDICT] features_val.parquet group 1301/1390  rows 49,635,118  211s
+[SAVE] results_fusion\pa_xgb_aft_val_preds.csv  52,845,256 rows
+[PREDICT] features_test.parquet group 1/1334  rows 280,655  1s
+[PREDICT] features_test.parquet group 101/1334  rows 11,148,586  48s
+[PREDICT] features_test.parquet group 201/1334  rows 21,952,213  94s
+[PREDICT] features_test.parquet group 301/1334  rows 32,872,999  140s
+[PREDICT] features_test.parquet group 401/1334  rows 43,735,410  186s
+[PREDICT] features_test.parquet group 501/1334  rows 54,497,844  231s
+[PREDICT] features_test.parquet group 601/1334  rows 65,074,192  276s
+[PREDICT] features_test.parquet group 701/1334  rows 76,238,621  323s
+[PREDICT] features_test.parquet group 801/1334  rows 86,513,375  369s
+[PREDICT] features_test.parquet group 901/1334  rows 97,906,269  417s
+[PREDICT] features_test.parquet group 1001/1334  rows 108,369,817  461s
+[PREDICT] features_test.parquet group 1101/1334  rows 119,516,769  509s
+[PREDICT] features_test.parquet group 1201/1334  rows 130,202,721  554s
+[PREDICT] features_test.parquet group 1301/1334  rows 141,402,104  602s
+[SAVE] results_fusion\pa_xgb_aft_test_preds.csv  144,739,479 rows
+exit 0

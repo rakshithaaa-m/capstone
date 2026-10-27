@@ -1,0 +1,9 @@
+[LOAD] failing-drive test rows with both predictions ...
+[LOAD] {'failing_rows': 1131717, 'rows_missing_lstm': 0, 'rows_missing_pa': 0}
+[MAE] rul<=90 (primary)  rows   419,414  drives 5,341  LSTM   42.11  P-A 1020.96  dMAE -978.85  95% CI [-1014.17, -940.21]
+[MAE] rul<=30            rows   150,983  drives 5,341  LSTM   61.46  P-A  842.91  dMAE -781.45  95% CI [-815.52, -744.40]
+[MAE] all failing rows   rows 1,131,717  drives 5,341  LSTM   88.32  P-A 1345.03  dMAE -1256.71  95% CI [-1298.20, -1215.67]
+[C-INDEX] 352,197 drives (5,341 failing), first test row: LSTM 0.5380  P-A 0.7491
+[SAVE] results_fusion/rul_compare.csv
+[VERDICT] KEEP: the LSTM stays as the displayed RUL.
+exit 0

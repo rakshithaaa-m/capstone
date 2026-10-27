@@ -1,0 +1,40 @@
+[LOAD] one row per drive, ever-fail label ...
+
+[PARTNER] results_fusion\pa_xgb_aft_val_preds.csv  column=aft_rul_pred  kind=rul
+[LOAD] drives without a partner score: 0 of 308,202
+[LOAD] 308,202 drives, 2,770 ever-fail (0.8988%)
+[SPLIT] fit 154,101 / select 154,101 drives, select positives 1353
+
+[BASELINE] LightGBM alone on the selection half: AUPRC 0.60526
+[BASELINE] positives in selection half: 1,353
+[RESULT]  combiner                 AUPRC      vs LightGBM
+          A. intercept only (sanity)       0.00878  -0.59648
+          B. logistic [prob, risk]         0.54541  -0.05985
+          C. GBDT stacker [prob, risk]     0.54983  -0.05544
+          D. GBDT + engineered             0.56582  -0.03945
+          E. GBDT prob-only (control)      0.53612  -0.06914
+
+[SAVE] results_fusion/stacking_pa_xgb_aft.csv
+
+[CONDITIONAL] does the partner add signal ON TOP of LightGBM probability?
+[CONDITIONAL] marginal AUROC of partner risk alone: 0.7106
+[CONDITIONAL]   prob  0-10%  n= 15,410  pos=  12  AUROC(partner)=0.5000
+[CONDITIONAL]   prob 10-20%  n= 15,410  pos=   8  AUROC(partner)=0.5000
+[CONDITIONAL]   prob 20-30%  n= 15,410  pos=  10  AUROC(partner)=0.5000
+[CONDITIONAL]   prob 30-40%  n= 15,410  pos=  18  AUROC(partner)=0.5000
+[CONDITIONAL]   prob 40-50%  n= 15,410  pos=  17  AUROC(partner)=0.5000
+[CONDITIONAL]   prob 50-60%  n= 15,410  pos=  22  AUROC(partner)=0.5000
+[CONDITIONAL]   prob 60-70%  n= 15,411  pos=  21  AUROC(partner)=0.5000
+[CONDITIONAL]   prob 70-80%  n= 15,409  pos=  38  AUROC(partner)=0.5000
+[CONDITIONAL]   prob 80-90%  n= 15,410  pos=  29  AUROC(partner)=0.5000
+[CONDITIONAL]   prob 90-100%  n= 15,411  pos=1178  AUROC(partner)=0.7316
+[CONDITIONAL] bands where the partner ranks failures correctly: 1/10   median AUROC 0.5000
+[CONDITIONAL] positive-weighted mean AUROC 0.7017
+
+[BOOTSTRAP] best combiner vs LightGBM, drive-clustered, B=400
+[BOOTSTRAP] gap AUPRC -0.03929  95% CI [-0.05025, -0.02793]
+[BOOTSTRAP] stacker wins in 0.0% of resamples
+
+[VERDICT] Gap excludes zero in the WRONG direction: the best
+[VERDICT] combiner is reliably worse. Report that.
+exit 0
