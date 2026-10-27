@@ -27,8 +27,20 @@ Correctness requirements
 * Report the gap to LightGBM with a drive-clustered bootstrap CI, not just a
   point estimate, because the differences we are chasing are ~1%.
 
+Partner models (Amendment 03)
+-----------------------------
+The second score is pluggable.  ``--partner_csv`` is any per-row file with
+``serial_number``, ``date`` and ``--partner_col``; ``--partner_kind`` says
+whether that column is a remaining-life estimate in days (``rul``, mapped
+through the horizon-bounded encoding exactly as before) or a failure
+probability (``prob``, used as-is).  The defaults reproduce the original
+LightGBM + LSTM study byte-for-byte (checked with ``--boot 400``).
+
 Usage:
     python 16_stacking_study.py --out results/stacking_study.csv
+    python 16_stacking_study.py --partner_csv results_fusion/pa_xgb_aft_val_preds.csv \\
+        --partner_col aft_rul_pred --partner_kind rul \\
+        --out results_fusion/stacking_xgb_aft.csv --boot 400
 """
 from __future__ import annotations
 
@@ -42,7 +54,8 @@ import pandas as pd
 SEED = 20260926
 
 
-def load_split(results_dir: Path) -> pd.DataFrame:
+def load_split(results_dir: Path, partner_csv: Path,
+               partner_col: str) -> pd.DataFrame:
     """Latest-known row per drive with both scores aligned."""
     import duckdb
 
@@ -73,31 +86,52 @@ def load_split(results_dir: Path) -> pd.DataFrame:
                 FROM src GROUP BY 1
             ),
             p AS (
-                SELECT serial_number, ARG_MAX(lstm_rul_pred, date) AS rul
-                FROM read_csv_auto('{(results_dir/'lstm_full_val_preds.csv').resolve().as_posix()}')
+                SELECT serial_number, ARG_MAX("{partner_col}", date) AS rul
+                FROM read_csv_auto('{partner_csv.resolve().as_posix()}')
                 GROUP BY 1
             )
             SELECT last.serial_number, last.prob, last.hybrid_score,
-                   p.rul, ever.ever_fail
+                   p.rul, ever.ever_fail,
+                   p.serial_number IS NOT NULL AS has_partner
             FROM last
             JOIN ever ON ever.serial_number = last.serial_number
-            JOIN p    ON p.serial_number    = last.serial_number
+            LEFT JOIN p ON p.serial_number  = last.serial_number
         """).fetchdf()
     finally:
         con.close()
-    return df
+    # Every partner is compared on the SAME drives as LightGBM; a partner
+    # that silently scores fewer drives would shift the baseline too.
+    missing = int((~df["has_partner"]).sum())
+    print(f"[LOAD] drives without a partner score: {missing:,} of {len(df):,}"
+          + ("  (dropped)" if missing else ""))
+    return df[df["has_partner"]].drop(columns="has_partner")
 
 
-def features(prob: np.ndarray, rul: np.ndarray, horizon: float) -> dict:
+def features(prob: np.ndarray, rul: np.ndarray, horizon: float,
+             kind: str = "rul") -> dict:
     """Derive combiner inputs from the two base scores.
 
-    ``rul`` may contain non-finite values (a drive with no matched LSTM row);
-    they are clipped to 0 so the feature matrices stay finite.
+    ``rul`` is the partner score: days of remaining life when ``kind`` is
+    ``rul``, a failure probability when ``kind`` is ``prob``.  Non-finite
+    values (a drive with no matched partner row) are clipped to 0 so the
+    feature matrices stay finite.
     """
     rul = np.nan_to_num(np.asarray(rul, dtype=np.float64), nan=0.0,
                         posinf=0.0, neginf=0.0)
     prob = np.nan_to_num(np.asarray(prob, dtype=np.float64), nan=0.0,
                          posinf=1.0, neginf=0.0)
+    if kind == "prob":
+        risk = np.clip(rul, 0.0, 1.0)
+        clipped = np.clip(risk, 1e-7, 1 - 1e-7)
+        return {
+            "prob": prob,
+            "risk": risk,
+            "prob_x_risk": prob * risk,
+            "prob_squared": prob * prob,
+            "risk_logit": np.log(clipped / (1 - clipped)),
+            "prob_high": (prob > 0.5).astype(np.float64),
+            "risk_high": (risk > 0.5).astype(np.float64),
+        }
     risk = np.clip((horizon - rul) / horizon, 0.0, 1.0)
     hi = float(np.percentile(rul, 99)) if np.any(rul > 0) else 1.0
     return {
@@ -140,6 +174,11 @@ def main() -> None:
     ap.add_argument("--horizon_days", type=float, default=14.0)
     ap.add_argument("--out", default="results/stacking_study.csv")
     ap.add_argument("--boot", type=int, default=200)
+    ap.add_argument("--partner_csv", default=None,
+                    help="per-row partner scores (default: <results_dir>/"
+                         "lstm_full_val_preds.csv)")
+    ap.add_argument("--partner_col", default="lstm_rul_pred")
+    ap.add_argument("--partner_kind", choices=["rul", "prob"], default="rul")
     args = ap.parse_args()
 
     from sklearn.metrics import average_precision_score as AP
@@ -150,7 +189,11 @@ def main() -> None:
     horizon = float(cfg.get("horizon_days", args.horizon_days))
 
     print("[LOAD] one row per drive, ever-fail label ...\n")
-    df = load_split(results)
+    partner_csv = (Path(args.partner_csv) if args.partner_csv
+                   else results / "lstm_full_val_preds.csv")
+    print(f"[PARTNER] {partner_csv}  column={args.partner_col}  "
+          f"kind={args.partner_kind}")
+    df = load_split(results, partner_csv, args.partner_col)
     order = np.argsort(df["serial_number"].to_numpy(), kind="stable")
     df = df.iloc[order].reset_index(drop=True)
     y = df["ever_fail"].astype(int).to_numpy()
@@ -161,7 +204,7 @@ def main() -> None:
     print(f"[LOAD] {len(y):,} drives, {int(y.sum()):,} ever-fail "
           f"({100 * y.mean():.4f}%)")
 
-    F = features(prob, rul, horizon)
+    F = features(prob, rul, horizon, args.partner_kind)
 
     # Deterministic split. GroupShuffleSplit is seeded, but DuckDB does not
     # guarantee row order, so an unstable input order silently reshuffles
@@ -178,8 +221,11 @@ def main() -> None:
         ("A. intercept only (sanity)", ["prob"]),
         ("B. logistic [prob, risk]", ["prob", "risk"]),
         ("C. GBDT stacker [prob, risk]", ["prob", "risk"]),
-        ("D. GBDT + engineered", ["prob", "risk", "prob_x_risk", "rul_log",
-                                   "prob_high", "risk_high", "rul_frac"]),
+        ("D. GBDT + engineered",
+         ["prob", "risk", "prob_x_risk", "rul_log", "prob_high", "risk_high",
+          "rul_frac"] if args.partner_kind == "rul" else
+         ["prob", "risk", "prob_x_risk", "risk_logit", "prob_high",
+          "risk_high"]),
         ("E. GBDT prob-only (control)", ["prob"]),
     ]
     rows = []
@@ -235,9 +281,9 @@ def main() -> None:
 
     risk_all = F["risk"]
     sel_pos = y[sel_idx] == 1
-    print("\n[CONDITIONAL] does RUL add signal ON TOP of LightGBM probability?")
+    print("\n[CONDITIONAL] does the partner add signal ON TOP of LightGBM probability?")
     marginal = AUC(y[sel_idx], risk_all[sel_idx])
-    print(f"[CONDITIONAL] marginal AUROC of RUL risk alone: {marginal:.4f}")
+    print(f"[CONDITIONAL] marginal AUROC of partner risk alone: {marginal:.4f}")
     bands = []
     qs = np.quantile(prob[sel_idx], np.linspace(0, 1, 11))
     for b in range(10):
@@ -252,13 +298,19 @@ def main() -> None:
         bands.append({"band": f"P{b*10}-{(b+1)*10}", "n": int(m.sum()),
                       "positives": npos, "aulroc_risk": a})
         print(f"[CONDITIONAL]   prob {b*10:>2}-{(b+1)*10:>2}%  n={int(m.sum()):>7,}  "
-              f"pos={npos:>4}  AUROC(RUL)={a:.4f}")
+              f"pos={npos:>4}  AUROC(partner)={a:.4f}")
     bd = pd.DataFrame(bands)
     valid = bd["aulroc_risk"].dropna()
     if len(valid):
-        print(f"[CONDITIONAL] bands where RUL ranks failures correctly: "
+        print(f"[CONDITIONAL] bands where the partner ranks failures correctly: "
               f"{int((valid > 0.5).sum())}/{len(valid)}   "
               f"median AUROC {valid.median():.4f}")
+        # The median weights every band equally, but positives are not spread
+        # evenly: on the LSTM run the top decile held 1,178 of 1,353.  The
+        # positive-weighted mean is the Amendment 03 screening statistic.
+        w = bd.loc[valid.index, "positives"].to_numpy(dtype=np.float64)
+        print(f"[CONDITIONAL] positive-weighted mean AUROC "
+              f"{float(np.average(valid.to_numpy(), weights=w)):.4f}")
     bd.to_csv(args.out.replace(".csv", "_conditional.csv"), index=False)
 
     # ---- Paired drive-clustered bootstrap on the winner -------------------
@@ -304,8 +356,8 @@ def main() -> None:
 
     if lo <= 0 <= hi:
         print("\n[VERDICT] Gap is NOT distinguishable from noise (CI spans 0).")
-        print("[VERDICT] Do not ship a fusion. Report that the limit is the RUL")
-        print("[VERDICT] feature, not the combiner -- a linear blend and two GBDT")
+        print("[VERDICT] Do not ship a fusion. Report that the limit is the partner")
+        print("[VERDICT] score, not the combiner -- a linear blend and two GBDT")
         print("[VERDICT] stackers were all tested and none beat LightGBM reliably.")
     elif lo > 0:
         print(f"\n[VERDICT] Gap EXCLUDES zero: {best_row['combiner']} genuinely beats")
