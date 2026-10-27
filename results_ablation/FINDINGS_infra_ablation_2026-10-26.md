@@ -40,6 +40,43 @@ This is the strongest evidence that `17c_per_seed_full.py` implements the same
 full-split AUPRC statistic as the earlier Stage-6 runs, and that the earlier
 "with infra" number was a full-split single-seed result.
 
+## 2026-10-27 addendum — lead time and calibration
+
+### Lead-time curve (new, `18_leadtime_curve.py`)
+
+Share of failing drives flagged HIGH at `failure_date - L >= ...` horizons:
+
+| horizon (days before failure) | n_evaluated | n_flagged_HIGH | share flagged HIGH |
+|---|---|---|---|
+| 30 | 4,764 | 2,257 | 0.4296 |
+| 14 | 4,915 | 2,664 | 0.5070 |
+| 7 | 4,939 | 2,884 | 0.5489 |
+| 1 | 5,009 | 3,337 | 0.6351 |
+
+Interpretation: as the lead time shrinks toward failure, the share of failing
+drives that the model flags HIGH rises (0.43 at 30 d -> 0.64 at 1 d), which is the
+expected qualitative behaviour for a near-failure alert.
+
+### Calibration (new, `19_calibration.py`)
+
+| metric | value |
+|---|---|
+| Brier score, all rows | 0.010685 |
+| Brier score, positives only | 0.315892 |
+| ECE, 10 equal-width bins, test set | 0.040070 |
+
+The decision thresholds (Stage 09) are recall-calibrated and therefore quantile-like
+decision thresholds, not probability-calibration outputs; the Brier/ECE numbers are
+reported without retroactively redefining them.
+
+### RUL control (settled)
+
+The stacking study (`16_stacking_study.py`) already settles the LightGBM-RUL scope:
+the best combiner (logistic on classifier prob + RUL) loses to LightGBM-only
+(Δ = -0.0165, 95% CI [-0.0246, -0.0091], wins 0% of resamples); and RUL AUROC within
+classifier deciles is ~0.49 (median), i.e. RUL carries no information the classifier
+lacks. No new LightGBM-RUL control run was needed.
+
 ## Cohort diagnostics
 
 | cohort | rows | AUPRC A | AUPRC B | delta |

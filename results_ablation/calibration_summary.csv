@@ -1,0 +1,2 @@
+brier_all,brier_positives,n,n_positives,ece,bins,calibration_scheme,cutoff_source
+0.010684509645171376,0.3158924397503777,144739479,67689,0.04006997093158572,10,"10 equal-width bins, test set","quantile-based decision thresholds from Stage 09 (recall-calibrated), not probability calibration output"
