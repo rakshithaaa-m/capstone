@@ -806,9 +806,9 @@ def render_overview(
 
     st.markdown("### Operational queue")
     st.caption(
-        "Highest latest-known risk scores (6 decimals). The shipped strategy was "
-        "selected on held-out validation; see the Model health panel for which "
-        "candidate won. Select a drive in Drive Explorer for the full prediction."
+        "Highest latest-known risk scores (6 decimals). Fleet urgency orders work "
+        "within a tier and never changes it. Select a drive in Drive Explorer "
+        "for the full prediction."
     )
     queue = get_flagged_drives_preview(results_dir, limit=50, source_version=source_version)
     if queue.empty:
@@ -850,7 +850,31 @@ def render_overview(
 
     st.markdown("### Model health")
     health_cols = st.columns(3, gap="medium")
-    if not metrics.empty:
+    if not metrics.empty and str(metrics.iloc[0].get("chosen_strategy")) == "lgbm_only":
+        # Nothing fused is shipped, so no card is labelled "hybrid".
+        row = metrics.iloc[0]
+        with health_cols[0]:
+            metric_card("LightGBM AUPRC", f"{float(row['test_auprc']):.3f}", "held-out test")
+        with health_cols[1]:
+            metric_card("LightGBM ROC-AUC", f"{float(row['test_roc_auc']):.3f}", "held-out test")
+        with health_cols[2]:
+            if not tier_accuracy.empty and "cumulative_share_captured" in tier_accuracy:
+                high = tier_accuracy.loc[tier_accuracy["tier"] == "HIGH"]
+                recall = (
+                    float(high.iloc[0]["cumulative_share_captured"])
+                    if not high.empty
+                    else float("nan")
+                )
+                metric_card("HIGH-tier capture", f"{recall:.1%}", "held-out test")
+        st.caption(
+            "Shipped predictor: LightGBM (5-seed ensemble). Fusing it with the LSTM, "
+            "a survival model and a second boosted model was tested under a "
+            "pre-registered protocol; none cleared the materiality margin "
+            "(results_fusion/)."
+        )
+        if not tier_accuracy.empty and "cumulative_share_captured" in tier_accuracy:
+            st.caption("Cutoffs were calibrated on validation; the capture shown here is held-out test.")
+    elif not metrics.empty:
         row = metrics.iloc[0]
         strategy = str(row.get("chosen_strategy", "hybrid"))
         hybrid_auprc = float(row.get("test_auprc", float("nan")))
@@ -888,7 +912,7 @@ def render_overview(
         if not tier_accuracy.empty and "cumulative_share_captured" in tier_accuracy:
             st.caption("Cutoffs were calibrated on validation; the capture shown here is held-out test.")
     else:
-        st.info("Hybrid metrics are not available yet.")
+        st.info("Model metrics are not available yet.")
 
     source_text = (
         "Indexed drive-status table"

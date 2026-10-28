@@ -5,8 +5,13 @@ For each Medium/High-risk drive, looks up its strongest SHAP-driving feature
 (from Stage 11's per-row LightGBM values) and maps it to a plain-language root
 cause and a recommended action, using a rule-based lookup table (not a model —
 built once, reused by the dashboard). SHAP explains the LightGBM component;
-the calibrated tier itself comes from the hybrid fusion output, so the
-dashboard labels those sources separately.
+the calibrated tier comes from the shipped scorer (LightGBM alone; Stage 8
+chose ``lgbm_only``), so the dashboard labels those sources separately.
+
+The tier sets the timescale; the driver sets the kind of action.  Entries with
+a replacement deadline also carry a ``medium_action`` without one: a MEDIUM
+drive is "watch closely", so a 7-day replacement order would contradict its
+tier.  HIGH drives keep the deadline.
 
 Usage (use the full at-risk SHAP file for complete dashboard coverage):
     python3 12_mitigation_mapping.py \
@@ -88,14 +93,20 @@ ROOT_CAUSE_LOOKUP = {
     "smart_5_raw": {
         "root_cause": "Reallocated sector count rising — the drive is remapping bad sectors to spare storage.",
         "action": "Schedule replacement within 7 days; increase SMART polling to daily in the meantime.",
+        "medium_action": "Increase SMART polling to daily; plan replacement at the next maintenance "
+                          "window, sooner if the reallocated count keeps rising or the drive reaches HIGH.",
     },
     "smart_187_raw": {
         "root_cause": "Reported uncorrectable errors climbing — data integrity is being compromised on read/write.",
         "action": "Schedule replacement within 7 days; verify backups for data hosted on this drive.",
+        "medium_action": "Verify backups for data hosted on this drive; plan replacement at the next "
+                          "maintenance window, sooner if the drive reaches HIGH.",
     },
     "smart_188_raw": {
         "root_cause": "Command timeouts increasing — the drive is failing to respond within the expected time.",
         "action": "Increase monitoring frequency; plan replacement within 14 days.",
+        "medium_action": "Increase monitoring frequency; re-assess at the next maintenance window and "
+                          "plan replacement if timeouts continue.",
     },
     "smart_194_raw": {
         "root_cause": "Operating temperature elevated or unstable — thermal stress accelerates mechanical wear.",
@@ -108,6 +119,8 @@ ROOT_CAUSE_LOOKUP = {
     "smart_198_raw": {
         "root_cause": "Offline uncorrectable sector count rising — sectors have failed and could not be remapped.",
         "action": "Schedule replacement within 7 days; this is a strong, direct failure indicator.",
+        "medium_action": "Plan replacement at the next maintenance window; this is a strong, direct "
+                          "failure indicator, so act immediately if the drive reaches HIGH.",
     },
     "smart_9_raw": {
         "root_cause": "Power-on hours are high relative to the fleet — the drive is nearing typical end-of-life age.",
@@ -120,6 +133,8 @@ ROOT_CAUSE_LOOKUP = {
     "error_total": {
         "root_cause": "Combined error-attribute total is elevated across multiple SMART signals at once.",
         "action": "Treat as a strong composite warning; schedule replacement within 7 days.",
+        "medium_action": "Treat as a composite warning; increase SMART polling to daily and plan "
+                          "replacement at the next maintenance window, sooner if the drive reaches HIGH.",
     },
     "temp_stress": {
         "root_cause": "Sustained operation above the normal temperature band.",
@@ -226,7 +241,10 @@ def main() -> None:
             )
         else:
             root_cause = lookup["root_cause"]
-            action = lookup["action"]
+            if row["risk_tier"] == "MEDIUM":
+                action = lookup.get("medium_action", lookup["action"])
+            else:
+                action = lookup["action"]
         records.append({
             "serial_number": row["serial_number"],
             "date": str(row["date"].date()) if pd.notna(row["date"]) else None,
