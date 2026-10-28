@@ -1010,12 +1010,12 @@ def render_agent_workspace(
             st.warning("ANTHROPIC_API_KEY is not configured; run in Simulation mode.")
         if mode_label == "Live Claude agent":
             st.caption(
-                f"Configured live model: {os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-6')}"
+                f"Configured live model: {os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-5-5')}"
             )
         st.caption("Inventory, scheduling, and ticket tools are simulated. No external action is executed.")
 
     dry_run = mode_label == "Simulation"
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6") if not dry_run else None
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5-5") if not dry_run else None
     prediction_version = (
         f"{context.get('prediction', {}).get('as_of')}:"
         f"{float(context.get('prediction', {}).get('risk_score', 0.0)):.6f}"

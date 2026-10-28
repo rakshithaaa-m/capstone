@@ -855,7 +855,7 @@ def run_agent_live(
 
     import anthropic  # imported lazily so dry-run mode needs no SDK/key
 
-    selected_model = model or os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    selected_model = model or os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5-5")
     # Keep an individual request bounded; the overall run is bounded below so
     # retries cannot leave the dashboard spinner running for many minutes.
     client = anthropic.Anthropic(timeout=20.0, max_retries=1)
@@ -941,6 +941,16 @@ def run_agent_live(
                 # The selected drive is server-owned; the agent cannot check
                 # stock for a different model and attach it to this drive.
                 call_input = {"drive_model": context.get("drive_model", "UNKNOWN")}
+            capped_urgency = False
+            if (
+                call_name == "check_technician_availability"
+                and call_input.get("urgency") == "urgent"
+                and _urgency_for_context(context) != "urgent"
+            ):
+                # Fleet urgency orders work within a tier and never escalates
+                # it (D-03).  The prompt says so; this enforces it in code.
+                call_input = {"urgency": "routine"}
+                capped_urgency = True
             if call_name == "draft_maintenance_ticket":
                 # Identity and risk fields are server-owned.  The agent may
                 # choose the action wording, but it cannot make a different
@@ -992,6 +1002,9 @@ def run_agent_live(
                 output = function(**call_input)
             except Exception as exc:  # tool boundary must remain recoverable
                 output = {"error": type(exc).__name__, "message": str(exc)}
+            if capped_urgency and isinstance(output, dict):
+                output = {**output, "note": "urgency capped to routine: only a HIGH tier "
+                                            "is scheduled as urgent"}
 
             trace.append(
                 {

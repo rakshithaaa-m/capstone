@@ -119,6 +119,7 @@ the training period, and the tier cutoffs are fitted on validation.
 | `20_train_xgb_aft.py`, `21_rul_compare.py` | P-A survival model; RUL head-to-head with the LSTM |
 | `22_train_xgb_clf.py`, `24_pb_confirm.py` | P-B XGBoost classifier; §7 test confirmation |
 | `23_pa_urgency.py` | fleet-urgency ranking served by the dashboard and agent |
+| `25_agent_eval.py` | agent evaluation: policy audit, red team, live harness → `results/agent_eval/` |
 
 The `fix*.py`, `check_*.py`, `verify_*.py` and `diagnose_*.py` files are
 one-off diagnostics kept for provenance.
@@ -156,11 +157,19 @@ streamlit run 13_dashboard.py -- --results_dir results
 python 14_agentic_mitigation.py --serial_number ZA1C0JYE --dry_run
 ```
 
-For live mode, set `ANTHROPIC_API_KEY`. `ANTHROPIC_MODEL` is optional.
+For live mode, set `ANTHROPIC_API_KEY`. `ANTHROPIC_MODEL` is optional; the
+default is `claude-sonnet-5-5`.
 The agent can check spare parts and technician availability and draft a
 maintenance ticket. It never executes an action: an operator approves every
 ticket. The model's tier is an immutable input, and the agent cannot raise or
-lower it.
+lower it. This is enforced in code, not only in the prompt:
+- the ticket's identity, tier and root cause are attached by the server;
+- the parts lookup is locked to the drive's own model;
+- a non-HIGH drive cannot be scheduled as urgent.
+
+`results/agent_eval/FINDINGS_agent_eval.md` reports the evaluation. The rule
+policy passes all 13 invariants on all 32,794 at-risk drives. The server
+boundary holds in 10 of 10 red-team scenarios.
 
 **Full rebuild from raw data.** Use `00_setup.md` for stages 1–5. For
 stage 6, use the `--mode train` and `--mode predict` usage in the docstring of

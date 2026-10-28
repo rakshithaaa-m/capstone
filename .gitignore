@@ -71,3 +71,7 @@ models_ablation/
 
 # Local pre-change snapshots, kept for provenance; each records its git commit.
 snapshot_*/
+
+# Agent evaluation: per-drive check table (3 MB), regenerable by 25_agent_eval.py policy
+results/agent_eval/policy_checks.csv
+results/agent_eval/policy_runs.jsonl
