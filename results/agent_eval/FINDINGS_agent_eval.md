@@ -63,7 +63,8 @@ often this happens.
 | | specific root cause | generic fallback |
 |---|---|---|
 | first evaluation | 28,703 (87.5%) | 4,091 (12.5%) |
-| after adding `smart_4_raw` and `smart_226_raw` | **30,734 (93.7%)** | **2,060 (6.3%)** |
+| after adding `smart_4_raw` and `smart_226_raw` | 30,734 (93.7%) | 2,060 (6.3%) |
+| after adding `smart_12_raw`, `smart_1_raw` and `smart_193_raw` | **31,655 (96.5%)** | **1,139 (3.5%)** |
 
 The most common top drivers are `error_total` (14,253), `smart_5_raw` (9,237)
 and `smart_9_raw` (4,052).
@@ -78,8 +79,20 @@ signal may reflect the drive family. As secondary wear indicators, neither
 carries a replacement deadline. Regenerating the mapping changed exactly those
 2,031 records.
 
-The remaining fallback is spread thinly over many attributes. The largest are
-`smart_12_raw` (396), `smart_1_raw` (321) and `smart_193_raw` (204).
+A second round added three more attributes:
+
+| attribute | drives | source | meaning |
+|---|---|---|---|
+| SMART 12 | 396 | mostly Toshiba | power-cycle count |
+| SMART 193 | 204 | Toshiba only | load/unload cycle count |
+| SMART 1 | 321 | mostly Seagate and WD | raw read error rate |
+
+The SMART 1 entry states that Seagate's raw value packs several counters
+together, so it is not a plain error count. All three are secondary
+indicators with no deadline. Exactly those 921 records changed.
+
+The remaining fallback is thin. The largest groups are `smart_3_raw` (198),
+`smart_195_raw` (154) and `smart_1_normalized` (149).
 
 ## 4. Live mode (Claude): harness ready, not yet run
 

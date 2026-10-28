@@ -106,6 +106,27 @@ ROOT_CAUSE_LOOKUP = {
         "action": "Increase SMART polling to daily; cross-check load-cycle count (193) and reallocated "
                    "sectors, and flag for replacement if the load-in time keeps rising.",
     },
+    # Next-largest uncovered drivers on the same queue: smart_12 (396, mostly
+    # Toshiba), smart_1 (321, mostly Seagate/WDC), smart_193 (204, Toshiba).
+    "smart_12_raw": {
+        "root_cause": "Power-cycle count is high relative to the fleet -- the drive has been powered on "
+                       "and off unusually often, which stresses the motor and electronics at each start.",
+        "action": "Check the host for unplanned reboots or power instability; increase SMART polling and "
+                   "cross-check sector counts before scheduling replacement.",
+    },
+    "smart_1_raw": {
+        "root_cause": "Raw read error rate is elevated. On Seagate drives this raw value packs several "
+                       "counters together, so it is not a plain error count and is not comparable across "
+                       "vendors; treat it as a secondary read-channel signal.",
+        "action": "Cross-check reallocated (5), pending (197) and uncorrectable (187/198) sectors before "
+                   "acting; increase SMART polling and re-assess if those also rise.",
+    },
+    "smart_193_raw": {
+        "root_cause": "Load/unload cycle count is high relative to the fleet -- the heads park and unpark "
+                       "unusually often, which wears the head ramp over time (seen here on Toshiba models).",
+        "action": "Check the host's power-management / head-parking settings; increase SMART polling and "
+                   "cross-check head load-in time (226) and sector counts before scheduling replacement.",
+    },
     "smart_5_raw": {
         "root_cause": "Reallocated sector count rising — the drive is remapping bad sectors to spare storage.",
         "action": "Schedule replacement within 7 days; increase SMART polling to daily in the meantime.",
