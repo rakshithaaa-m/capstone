@@ -1,0 +1,27 @@
+[2026-10-23 12.28.53] PREFLIGHT
+[2026-10-23 12.28.59] train rows = 34,40,506
+[2026-10-23 12.28.59] preflight OK
+[2026-10-23 12.28.59] ABLATION START
+[2026-10-23 12.28.59] === ARM without_infra : TRAIN already complete (models on disk) -- reusing ===
+[2026-10-23 12.28.59] === ARM without_infra : PREDICT ===
+[ENV] Python interpreter: 64-bit (D:\capstone\.venv\Scripts\python.exe)
+[ENV] lightgbm version: 4.7.0
+[ENV] pyarrow version: 25.0.1
+[LOAD] Loading trained model(s) from disk (fresh process, no training history)...
+[ENSEMBLE] Averaging 5 boosters: [42, 7, 13, 99, 23]
+[STREAM] Predicting on FULL validation set (chunked) for threshold selection...
+[ENSEMBLE]   pass 1/5
+[MEM] baseline before streaming | RSS=476MB | pyarrow_pool=0MB
+[STREAM] 20 chunk(s) / 4,000,000 rows processed so far...
+[MEM] chunk 20 | RSS=1,325MB | pyarrow_pool=587MB
+[STREAM] 40 chunk(s) / 8,000,000 rows processed so far...
+[MEM] chunk 40 | RSS=1,616MB | pyarrow_pool=780MB
+[STREAM] 60 chunk(s) / 12,000,000 rows processed so far...
+[MEM] chunk 60 | RSS=1,936MB | pyarrow_pool=939MB
+[STREAM] 80 chunk(s) / 16,000,000 rows processed so far...
+[MEM] chunk 80 | RSS=2,265MB | pyarrow_pool=1,131MB
+[STREAM] 100 chunk(s) / 20,000,000 rows processed so far...
+[MEM] chunk 100 | RSS=2,583MB | pyarrow_pool=1,323MB
+[STREAM] 120 chunk(s) / 24,000,000 rows processed so far...
+[MEM] chunk 120 | RSS=2,880MB | pyarrow_pool=1,482MB
+[2026-10-23 12.36.08] ABLATION FAILED: PREDICT FAILED for without_infra (exit -1)

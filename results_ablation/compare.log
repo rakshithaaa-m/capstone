@@ -1,0 +1,72 @@
+[CACHE] vault dimension ...
+[CACHE] 252 vaults
+[CACHE] drive dimension ...
+[CACHE] 352,383 drives
+[CACHE] drive -> vault (vault is a property of the drive, so this joins on serial only) ...
+[CACHE] joining arms and writing (this is the expensive step) ...
+[CACHE] written in 8.1 min -> results_ablation\_ablation_joined.parquet
+[CACHE] 144,739,479 rows
+[CACHE] positives 67,689 (expected 67,689)
+[LOAD] reading joined predictions ...
+[LOAD] 144,739,479 rows, 67,689 positives, prevalence 0.046766%
+[LOAD] 352,383 drives, 252 vault codes
+
+[POINT] arm A (212 feat) AUPRC 0.0839380140  ROC 0.8886709965
+[POINT] arm B (217 feat) AUPRC 0.0840758288  ROC 0.8932872413
+[POINT] delta (A - B)    -0.0001378148  (-0.16% relative)
+[BOOT] sorting 2 x 144,739,479 rows by score ...
+[BOOT] 25/1000  (7.78s/rep, eta 126.4 min)
+[BOOT] 50/1000  (7.77s/rep, eta 123.0 min)
+[BOOT] 75/1000  (7.77s/rep, eta 119.7 min)
+[BOOT] 100/1000  (7.76s/rep, eta 116.4 min)
+[BOOT] 125/1000  (7.76s/rep, eta 113.1 min)
+[BOOT] 150/1000  (7.75s/rep, eta 109.9 min)
+[BOOT] 175/1000  (7.76s/rep, eta 106.7 min)
+[BOOT] 200/1000  (7.75s/rep, eta 103.4 min)
+[BOOT] 225/1000  (7.75s/rep, eta 100.2 min)
+[BOOT] 250/1000  (7.88s/rep, eta 98.5 min)
+[BOOT] 275/1000  (8.01s/rep, eta 96.8 min)
+[BOOT] 300/1000  (8.11s/rep, eta 94.7 min)
+[BOOT] 325/1000  (8.19s/rep, eta 92.2 min)
+[BOOT] 350/1000  (8.26s/rep, eta 89.5 min)
+[BOOT] 375/1000  (8.32s/rep, eta 86.7 min)
+[BOOT] 400/1000  (8.38s/rep, eta 83.8 min)
+[BOOT] 425/1000  (8.42s/rep, eta 80.7 min)
+[BOOT] 450/1000  (8.46s/rep, eta 77.6 min)
+[BOOT] 475/1000  (8.51s/rep, eta 74.5 min)
+[BOOT] 500/1000  (8.54s/rep, eta 71.2 min)
+[BOOT] 525/1000  (8.57s/rep, eta 67.9 min)
+[BOOT] 550/1000  (8.60s/rep, eta 64.5 min)
+[BOOT] 575/1000  (8.60s/rep, eta 60.9 min)
+[BOOT] 600/1000  (8.61s/rep, eta 57.4 min)
+[BOOT] 625/1000  (8.70s/rep, eta 54.4 min)
+[BOOT] 650/1000  (9.23s/rep, eta 53.9 min)
+[BOOT] 675/1000  (9.73s/rep, eta 52.7 min)
+[BOOT] 700/1000  (10.19s/rep, eta 50.9 min)
+[BOOT] 725/1000  (10.62s/rep, eta 48.7 min)
+[BOOT] 750/1000  (10.61s/rep, eta 44.2 min)
+[BOOT] 775/1000  (10.56s/rep, eta 39.6 min)
+[BOOT] 800/1000  (10.51s/rep, eta 35.0 min)
+[BOOT] 825/1000  (10.43s/rep, eta 30.4 min)
+[BOOT] 850/1000  (10.37s/rep, eta 25.9 min)
+[BOOT] 875/1000  (10.30s/rep, eta 21.5 min)
+[BOOT] 900/1000  (10.24s/rep, eta 17.1 min)
+[BOOT] 925/1000  (10.18s/rep, eta 12.7 min)
+[BOOT] 950/1000  (10.13s/rep, eta 8.4 min)
+[BOOT] 975/1000  (10.07s/rep, eta 4.2 min)
+[BOOT] 1000/1000  (10.04s/rep, eta 0.0 min)
+
+[BOOT] delta -0.0001786621  95% CI [-0.0024700381, +0.0021504955]  B=1000  A>B in 44.3% of resamples
+
+[PER-SEED] missing per-seed file for an arm; run 17c_per_seed_full.py on both (expected per_seed_full_without_infra.csv, per_seed_full_with_infra.csv)
+
+[COHORT] vault novelty: 9.604% of test rows (13,901,161) sit in vaults never seen in training
+[COHORT] drive novelty: 26.107% of test rows (37,787,595) belong to drives never seen in training
+[COHORT] vault_seen    rows 130,838,318  pos 64,894  AUPRC A 0.083424 B 0.083843 delta -0.000418
+[COHORT] vault_unseen  rows 13,901,161  pos  2,795  AUPRC A 0.145514 B 0.143423 delta +0.002091
+[COHORT] drive_seen    rows 106,951,884  pos 57,539  AUPRC A 0.084964 B 0.085317 delta -0.000353
+[COHORT] drive_unseen  rows 37,787,595  pos 10,150  AUPRC A 0.089400 B 0.089686 delta -0.000286
+
+[VERDICT] EQUIVALENCE -- identifiers are immaterial; keep 212 for portability
+[SAVE] results_ablation\ablation_summary.csv
+[SAVE] results_ablation\ablation_bootstrap.csv

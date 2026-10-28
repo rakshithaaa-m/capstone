@@ -327,6 +327,10 @@ def main() -> None:
     cutoffs = json.loads((results / "tier_cutoffs.json").read_text())
     cfg = json.loads((Path("models") / "hybrid_config.json").read_text())
     horizon = float(cfg.get("horizon_days", 14.0))
+    # Label the shipped scorer by what Stage 8 actually chose.  With
+    # ``lgbm_only`` the "hybrid" column equals LightGBM, so calling it a
+    # fusion would misdescribe the tables.
+    shipped = f"Shipped scorer ({cfg.get('chosen_strategy', 'meta')})"
     c = cfg.get("meta_coef") or [0.0, 0.0]
     intercept = float(cfg.get("meta_intercept", 0.0))
 
@@ -355,7 +359,7 @@ def main() -> None:
     print("[2/5] row-level point estimates (must match lgbm_metrics.csv) ...")
     row_rows = []
     for name, s in (("LightGBM only", p_lgbm), ("Weighted blend", p_weighted),
-                    ("Meta fusion (shipped)", p_hybrid)):
+                    (shipped, p_hybrid)):
         ap_, auc = _ap(y, s), _auc(y, s)
         print(f"      {name:22s} AUPRC {ap_:.5f} ({ap_ / (n_pos / len(y)):.0f}x prevalence)  AUC {auc:.5f}")
         row_rows.append({"model": name, "auprc": ap_, "roc_auc": auc,
@@ -366,7 +370,7 @@ def main() -> None:
     print(f"[3/5] row-level drive-clustered bootstrap (B={args.boot_row}, "
           f"{SUBSAMPLE_DRIVES:,} drives/rep) ...")
     ci_rows = []
-    for name, s in (("LightGBM only", p_lgbm), ("Meta fusion (shipped)", p_hybrid)):
+    for name, s in (("LightGBM only", p_lgbm), (shipped, p_hybrid)):
         dist = bootstrap_subsampled(y, s, bounds, args.boot_row, SUBSAMPLE_DRIVES)
         lo, hi = _ci(dist)
         point = _ap(y, s)
@@ -382,7 +386,7 @@ def main() -> None:
     dy = d["ever_fails"].to_numpy().astype(np.int8)
     d_bounds = _drive_bounds(np.arange(len(d), dtype=np.int32))
     dcut = {**cutoffs}
-    for nm, col in (("LightGBM only", "p_lgbm"), ("Meta fusion (shipped)", "p_hybrid")):
+    for nm, col in (("LightGBM only", "p_lgbm"), (shipped, "p_hybrid")):
         s = d[col].to_numpy().astype(np.float64)
         point, auc = _ap(dy, s), _auc(dy, s)
         dist, dauc = bootstrap_full(dy, s, d_bounds, args.boot)

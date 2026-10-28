@@ -1,0 +1,47 @@
+[ARM] without_infra: 212 features, seeds [42, 7, 13, 99, 23], 144,739,479 test rows
+[STREAM] 20 chunks / 4,000,000 rows
+[STREAM] 40 chunks / 8,000,000 rows
+[STREAM] 60 chunks / 12,000,000 rows
+[STREAM] 80 chunks / 16,000,000 rows
+[STREAM] 100 chunks / 20,000,000 rows
+[STREAM] 120 chunks / 24,000,000 rows
+[STREAM] 140 chunks / 28,000,000 rows
+[STREAM] 160 chunks / 32,000,000 rows
+[STREAM] 180 chunks / 36,000,000 rows
+[STREAM] 200 chunks / 40,000,000 rows
+[STREAM] 220 chunks / 44,000,000 rows
+[STREAM] 240 chunks / 48,000,000 rows
+[STREAM] 260 chunks / 52,000,000 rows
+[STREAM] 280 chunks / 56,000,000 rows
+[STREAM] 300 chunks / 60,000,000 rows
+[STREAM] 320 chunks / 64,000,000 rows
+[STREAM] 340 chunks / 68,000,000 rows
+[STREAM] 360 chunks / 72,000,000 rows
+[STREAM] 380 chunks / 76,000,000 rows
+[STREAM] 400 chunks / 80,000,000 rows
+[STREAM] 420 chunks / 84,000,000 rows
+[STREAM] 440 chunks / 88,000,000 rows
+[STREAM] 460 chunks / 92,000,000 rows
+[STREAM] 480 chunks / 96,000,000 rows
+[STREAM] 500 chunks / 100,000,000 rows
+[STREAM] 520 chunks / 104,000,000 rows
+[STREAM] 540 chunks / 108,000,000 rows
+[STREAM] 560 chunks / 112,000,000 rows
+[STREAM] 580 chunks / 116,000,000 rows
+[STREAM] 600 chunks / 120,000,000 rows
+[STREAM] 620 chunks / 124,000,000 rows
+[STREAM] 640 chunks / 128,000,000 rows
+[STREAM] 660 chunks / 132,000,000 rows
+[STREAM] 680 chunks / 136,000,000 rows
+[STREAM] 700 chunks / 140,000,000 rows
+[STREAM] 720 chunks / 144,000,000 rows
+[SAMPLE] 144,739,479 rows, 67,689 positives, prevalence 0.046766%
+[SEED 42] auprc=0.0818550914 roc_auc=0.8853589500
+[SEED 7] auprc=0.0828026778 roc_auc=0.8889251901
+[SEED 13] auprc=0.0818036704 roc_auc=0.8882988571
+[SEED 99] auprc=0.0828034931 roc_auc=0.8909560334
+[SEED 23] auprc=0.0803715065 roc_auc=0.8873253924
+[ENSEMBLE] auprc=0.0839380140 roc_auc=0.8886709965
+[CHECK] lgbm_metrics.csv auprc=0.0839380140  diff=+2.78e-17
+[SPREAD] min=0.0803715065 max=0.0828034931 range=0.0024319866 sd=0.0009968691 mean=0.0819272878
+[SAVE] results_ablation\per_seed_full_without_infra.csv

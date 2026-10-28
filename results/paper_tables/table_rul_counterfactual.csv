@@ -1,10 +1,10 @@
 metric,value
-drives whose tier changes if RUL term is removed,12.0
-as % of at-risk queue (HIGH+MEDIUM),3.405385617353845e-05
+drives whose tier changes if RUL term is removed,38.0
+as % of at-risk queue (HIGH+MEDIUM),0.0001078372112162051
 demotions (HIGH/MEDIUM -> LOW),0.0
 promotions (LOW -> HIGH/MEDIUM),0.0
-  MEDIUM->HIGH,12.0
-"mean risk delta (RUL feature >= 0), with - without",-0.0010989400060832048
+  MEDIUM->HIGH,38.0
+"mean risk delta (RUL feature >= 0), with - without",-0.00185421755386703
 n drives with RUL feature < 0,0.0
-"mean RUL feature, drives that failed",59.05083309172575
-"mean RUL feature, drives that did not fail",77.81997030566019
+"mean RUL feature, drives that failed",63.26201431314443
+"mean RUL feature, drives that did not fail",86.45428938441464

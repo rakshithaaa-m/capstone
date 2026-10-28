@@ -1,0 +1,24 @@
+[CACHE] reusing results_ablation\_ablation_joined.parquet (1.22 GB)
+[LOAD] reading joined predictions ...
+[LOAD] 144,739,479 rows, 67,689 positives, prevalence 0.046766%
+[LOAD] 352,383 drives, 252 vault codes
+
+[POINT] arm A (212 feat) AUPRC 0.0839380140  ROC 0.8886709965
+[POINT] arm B (217 feat) AUPRC 0.0840758288  ROC 0.8932872413
+[POINT] delta (A - B)    -0.0001378148  (-0.16% relative)
+[BOOT] reusing 1000 saved replicates from results_ablation\ablation_bootstrap.csv
+
+[BOOT] delta -0.0001786621  95% CI [-0.0024700381, +0.0021504955]  B=1000  A>B in 44.3% of resamples
+
+[PER-SEED] missing per-seed file for an arm; run 17c_per_seed_full.py on both (expected per_seed_full_without_infra.csv, per_seed_full_with_infra.csv)
+
+[COHORT] vault novelty: 9.604% of test rows (13,901,161) sit in vaults never seen in training
+[COHORT] drive novelty: 26.107% of test rows (37,787,595) belong to drives never seen in training
+[COHORT] vault_seen    rows 130,838,318  pos 64,894  AUPRC A 0.083424 B 0.083843 delta -0.000418
+[COHORT] vault_unseen  rows 13,901,161  pos  2,795  AUPRC A 0.145514 B 0.143423 delta +0.002091
+[COHORT] drive_seen    rows 106,951,884  pos 57,539  AUPRC A 0.084964 B 0.085317 delta -0.000353
+[COHORT] drive_unseen  rows 37,787,595  pos 10,150  AUPRC A 0.089400 B 0.089686 delta -0.000286
+
+[VERDICT] EQUIVALENCE -- identifiers are immaterial; keep 212 for portability
+[SAVE] results_ablation\ablation_summary.csv
+[SAVE] results_ablation\ablation_bootstrap.csv

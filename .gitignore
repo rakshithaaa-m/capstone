@@ -60,3 +60,14 @@ results/_ens_ckpt_test/
 results_fusion/*_preds.csv
 results_fusion/*.partial
 results_fusion/_pb_confirm_*.parquet
+
+# --- Identifier ablation (Amendments 01/02) ---------------------------------
+# Per-row arm predictions and the joined bootstrap cache are GB-scale and
+# regenerable (17_ablation_compare.py); each arm's lgbm_metrics.csv is tracked.
+results_ablation/*/lgbm_*_probs.csv
+results_ablation/_ablation_joined*
+# Arm models (41 MB), regenerable with 06_train_lightgbm.py per the RUNBOOK.
+models_ablation/
+
+# Local pre-change snapshots, kept for provenance; each records its git commit.
+snapshot_*/

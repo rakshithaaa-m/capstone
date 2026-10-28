@@ -672,10 +672,10 @@
     "val": "data/processed/features_val.parquet",
     "test": "data/processed/features_test.parquet"
   },
-  "best_val_rmse": 166.48133850097656,
+  "best_val_rmse": 166.36148071289062,
   "test_metrics": {
-    "rmse": 336.4522399902344,
-    "mae": 96.01698303222656,
+    "rmse": 336.7048645019531,
+    "mae": 96.27336883544922,
     "n": 773938
   },
   "torch_version": "2.6.0+cu124",

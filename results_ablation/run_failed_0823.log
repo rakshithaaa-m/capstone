@@ -1,0 +1,4 @@
+[2026-10-23 08.23.40] ABLATION START
+[2026-10-23 08.23.40] === ARM without_infra : TRAIN ===
+[2026-10-23 08.26.41] TRAIN FAILED for without_infra (exit 1)
+[2026-10-23 08.26.41] === ARM with_infra : TRAIN ===

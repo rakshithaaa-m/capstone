@@ -1,0 +1,29 @@
+[2026-10-23 08.33.50] PREFLIGHT
+[2026-10-23 08.33.51] train rows = 34,40,506
+[2026-10-23 08.33.51] preflight OK
+[2026-10-23 08.33.51] ABLATION START
+[2026-10-23 08.33.51] === ARM without_infra : TRAIN ===
+[2026-10-23 09.53.39] === ARM without_infra : PREDICT ===
+[2026-10-23 12.28.53] PREFLIGHT
+[2026-10-23 12.28.59] train rows = 34,40,506
+[2026-10-23 12.28.59] preflight OK
+[2026-10-23 12.28.59] ABLATION START
+[2026-10-23 12.28.59] === ARM without_infra : TRAIN already complete (models on disk) -- reusing ===
+[2026-10-23 12.28.59] === ARM without_infra : PREDICT ===
+[2026-10-23 12.39.00] PREFLIGHT
+[2026-10-23 12.39.01] train rows = 34,40,506
+[2026-10-23 12.39.02] preflight OK
+[2026-10-23 12.39.02] ABLATION START
+[2026-10-23 12.39.02] === ARM without_infra : TRAIN already complete (models on disk) -- reusing ===
+[2026-10-23 12.39.02] === ARM without_infra : PREDICT ===
+[2026-10-23 18.08.17] === ARM without_infra : DONE ===
+[2026-10-23 18.08.18] === ARM with_infra : TRAIN ===
+[2026-10-24 09.25.59] PREFLIGHT
+[2026-10-24 09.26.03] train rows = 34,40,506
+[2026-10-24 09.26.04] preflight OK
+[2026-10-24 09.26.04] ABLATION START
+[2026-10-24 09.26.04] === ARM without_infra : COMPLETE (metrics + test probs on disk) -- skipping ===
+[2026-10-24 09.26.04] === ARM with_infra : TRAIN ===
+[2026-10-24 09.56.56] === ARM with_infra : PREDICT ===
+[2026-10-24 11.21.40] === ARM with_infra : DONE ===
+[2026-10-24 11.21.40] ABLATION COMPLETE -- run 17_ablation_compare.py next
