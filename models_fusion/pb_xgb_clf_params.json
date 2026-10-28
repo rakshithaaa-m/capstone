@@ -1,0 +1,22 @@
+{
+  "params": {
+    "objective": "binary:logistic",
+    "eval_metric": "aucpr",
+    "tree_method": "hist",
+    "nthread": -1,
+    "verbosity": 0,
+    "learning_rate": 0.057980986458581414,
+    "max_depth": 5,
+    "min_child_weight": 8.37978303236319,
+    "subsample": 0.8279679066657979,
+    "colsample_bytree": 0.6137903214576531,
+    "reg_alpha": 0.06555362890862776,
+    "reg_lambda": 0.0011425890727928423,
+    "seed": 42
+  },
+  "num_boost_round": 717,
+  "n_trials": 30,
+  "train_rows": 3440506,
+  "tune_rows": 5000000,
+  "val_tuning_sample_auprc": 0.11100075302170487
+}

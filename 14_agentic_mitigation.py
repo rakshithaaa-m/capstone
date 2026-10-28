@@ -3,8 +3,9 @@ Stage 14 - prediction-to-action agent for the HDD risk dashboard.
 
 The ML boundary and the agent boundary are deliberately separate:
 
-1. Stages 6-9 produce the immutable prediction (hybrid score, calibrated tier,
-   and LSTM RUL estimate).  Stage 12 supplies a SHAP-derived explanation.
+1. Stages 6-9 produce the immutable prediction (LightGBM score and calibrated
+   tier); Stage 23 adds the P-A fleet-urgency ranking.  Stage 12 supplies a
+   SHAP-derived explanation.
 2. This module passes that prediction to an action agent.  The agent chooses
    which operational tools to use and in what order.
 3. The dashboard displays the prediction and the resulting action separately;
@@ -177,18 +178,16 @@ TOOL_SCHEMAS = [
 SYSTEM_PROMPT = """
 You are a data-center maintenance action agent. You are given a frozen ML
 prediction for one drive. Do not recalculate, override, or reinterpret the
-model's numeric score, calibrated tier, or RUL estimate. Decide what operational
+model's numeric score, calibrated tier, or fleet urgency. Decide what operational
 response is appropriate from that prediction and the available evidence. The
-hybrid score is a model score, not proof of a calibrated failure probability.
-The RUL estimate may be marked not decision-grade when its held-out error is
-larger than the operating horizon; do not escalate solely because of an
-unreliable RUL value. If `rul_coef_positive` is true, the raw-RUL
-coefficient is positive; compare `rul_coef_relative` with the LightGBM
-coefficient before treating that sign as meaningful, and use RUL as context
-rather than a direct failure countdown. Use tools selectively. Check parts only when replacement
-may be needed, check a technician when scheduling is useful, and do not call a
-tool merely to fill the trace. A HIGH tier normally needs urgent handling; a
-MEDIUM drive with a short, decision-grade RUL may also need urgent handling.
+risk score is a model score, not proof of a calibrated failure probability.
+`fleet_urgency_pct` is a ranking from a survival model: the share of the fleet
+expected to outlive this drive. It is NOT a day count and must never be
+presented as one. Use it only to order work among drives of the same tier; do
+not escalate a drive above its tier because of it. Use tools selectively. Check
+parts only when replacement may be needed, check a technician when scheduling is
+useful, and do not call a tool merely to fill the trace. A HIGH tier normally
+needs urgent handling.
 Draft a maintenance ticket only for a HIGH or MEDIUM prediction when the
 prediction warrants operator action; do not create a ticket for a LOW-risk
 drive. Clearly distinguish the model's output
@@ -479,6 +478,14 @@ def build_drive_context(
         if not math.isfinite(risk_score):
             raise ValueError(f"Non-finite hybrid score for drive {serial_number}")
 
+        urgency_pct = row.get("fleet_urgency_pct")
+        try:
+            urgency_pct = float(urgency_pct) if urgency_pct is not None else None
+        except (TypeError, ValueError):
+            urgency_pct = None
+        if urgency_pct is not None and not math.isfinite(urgency_pct):
+            urgency_pct = None
+
         rul = row.get("lstm_rul_pred")
         if rul is None or pd.isna(rul):
             rul = _query_rul(con, results_dir, str(serial_number), as_of, tables)
@@ -587,6 +594,13 @@ def build_drive_context(
     prediction = {
         "risk_score": risk_score,
         "risk_tier": risk_tier,
+        "fleet_urgency_pct": urgency_pct,
+        "urgency_semantics": (
+            "share of the fleet the P-A survival model expects to outlive this "
+            "drive (test C-index 0.75); a ranking, not a day count"
+        ),
+        # The LSTM day estimate is retained for audit only; the dashboard and
+        # the agent payload use fleet_urgency_pct instead (Amendment 03, D-03).
         "estimated_rul_days": None if rul is None else float(rul),
         "rul_mae_days": rul_mae,
         "rul_is_decision_grade": rul_is_decision_grade,
@@ -656,16 +670,8 @@ def _prediction_message(context: dict[str, Any]) -> str:
         ),
         "calibrated_tier_cutoffs": prediction.get("tier_cutoffs", {}),
         "fusion_shipped": prediction.get("fusion_shipped", True),
-        "estimated_rul_days": prediction.get(
-            "estimated_rul_days", context.get("rul_days")
-        ),
-        "lstm_rul_mae_days": prediction.get("rul_mae_days"),
-        "rul_is_decision_grade": prediction.get("rul_is_decision_grade", False),
-        "rul_score_sign_inverted": prediction.get("rul_score_sign_inverted", False),
-        "rul_coef_positive": prediction.get("rul_coef_positive", False),
-        "meta_coef_lgbm": prediction.get("meta_coef_lgbm"),
-        "meta_coef_rul": prediction.get("meta_coef_rul"),
-        "rul_coef_relative": prediction.get("rul_coef_relative"),
+        "fleet_urgency_pct": prediction.get("fleet_urgency_pct"),
+        "urgency_semantics": prediction.get("urgency_semantics"),
         "as_of": prediction.get("as_of", context.get("date")),
         "tier_from_model": prediction.get("tier_from_model", "hybrid"),
         "shap_explains_model": prediction.get("shap_explains_model", "lightgbm"),
@@ -720,16 +726,8 @@ def _result_from_run(
 def _urgency_for_context(context: dict[str, Any]) -> str:
     prediction = context.get("prediction", {})
     tier = str(prediction.get("risk_tier") or context.get("risk_tier") or "").upper()
-    rul = prediction.get("estimated_rul_days", context.get("rul_days"))
-    try:
-        rul = float(rul) if rul is not None else None
-    except (TypeError, ValueError):
-        rul = None
-    if tier == "HIGH":
-        return "urgent"
-    if bool(prediction.get("rul_is_decision_grade")) and rul is not None and rul <= 7:
-        return "urgent"
-    return "routine"
+    # Fleet urgency orders work within a tier; it never escalates a drive.
+    return "urgent" if tier == "HIGH" else "routine"
 
 
 def run_agent_dry(context: dict[str, Any]) -> dict[str, Any]:
@@ -740,11 +738,6 @@ def run_agent_dry(context: dict[str, Any]) -> dict[str, Any]:
     """
     prediction = context.get("prediction", {})
     tier = str(prediction.get("risk_tier") or context.get("risk_tier") or "UNKNOWN").upper()
-    rul_raw = prediction.get("estimated_rul_days", context.get("rul_days"))
-    try:
-        rul = float(rul_raw) if rul_raw is not None else None
-    except (TypeError, ValueError):
-        rul = None
     if tier not in {"HIGH", "MEDIUM"}:
         summary = (
             "Simulation only: this drive is LOW risk, so no maintenance ticket or "
@@ -756,11 +749,9 @@ def run_agent_dry(context: dict[str, Any]) -> dict[str, Any]:
     inventory: dict[str, Any] | None = None
     technician: dict[str, Any] | None = None
 
-    # A high-risk or very-near-failure prediction needs a replacement check.
-    # Routine monitoring does not need to consume a stock lookup.
-    needs_parts = tier == "HIGH" or (
-        bool(prediction.get("rul_is_decision_grade")) and rul is not None and rul <= 14
-    )
+    # A high-risk prediction needs a replacement check.  Routine monitoring
+    # does not need to consume a stock lookup.
+    needs_parts = tier == "HIGH"
     if needs_parts:
         inventory = check_spare_parts_inventory(context.get("drive_model", "UNKNOWN"))
         trace.append(
@@ -808,12 +799,16 @@ def run_agent_dry(context: dict[str, Any]) -> dict[str, Any]:
         }
     )
 
+    urgency_pct = prediction.get("fleet_urgency_pct")
+    urgency_note = (
+        f" (expected to fail sooner than {float(urgency_pct):.0f}% of the fleet)"
+        if urgency_pct is not None
+        else ""
+    )
     if tier == "HIGH":
-        reason = "The model assigned HIGH risk"
-    elif needs_parts:
-        reason = "The model assigned at least MEDIUM risk with a near-term RUL"
+        reason = f"The model assigned HIGH risk{urgency_note}"
     else:
-        reason = "The model assigned MEDIUM risk; the RUL is not reliable enough for an automatic near-term escalation"
+        reason = f"The model assigned MEDIUM risk{urgency_note}; scheduled as routine"
     freshness_note = ""
     if prediction.get("observation_age_days", 0) and int(prediction["observation_age_days"]) > 30:
         freshness_note = (

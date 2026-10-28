@@ -59,3 +59,4 @@ results/_ens_ckpt_test/
 # Per-row partner predictions (GB-scale), regenerable by 20_/22_/... scripts.
 results_fusion/*_preds.csv
 results_fusion/*.partial
+results_fusion/_pb_confirm_*.parquet

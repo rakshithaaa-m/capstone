@@ -1,0 +1,55 @@
+[SETUP] xgboost 3.4.1, 212 features, seed 42
+[ENSEMBLE] seeds [42, 7, 13, 99, 23], 717 trees, tuned params from models_fusion\pb_xgb_clf_params.json
+[ENSEMBLE] 1/5 fitted (seed=42)  151s
+[ENSEMBLE] 2/5 fitted (seed=7)  139s
+[ENSEMBLE] 3/5 fitted (seed=13)  137s
+[ENSEMBLE] 4/5 fitted (seed=99)  138s
+[ENSEMBLE] 5/5 fitted (seed=23)  139s
+[PREDICT] features_val.parquet group 1/1390  rows 53,270  2s
+[PREDICT] features_val.parquet group 101/1390  rows 3,975,964  64s
+[PREDICT] features_val.parquet group 201/1390  rows 7,599,225  125s
+[PREDICT] features_val.parquet group 301/1390  rows 11,407,699  179s
+[PREDICT] features_val.parquet group 401/1390  rows 15,309,969  233s
+[PREDICT] features_val.parquet group 501/1390  rows 19,029,691  284s
+[PREDICT] features_val.parquet group 601/1390  rows 22,711,392  335s
+[PREDICT] features_val.parquet group 701/1390  rows 26,717,374  391s
+[PREDICT] features_val.parquet group 801/1390  rows 30,460,800  442s
+[PREDICT] features_val.parquet group 901/1390  rows 34,129,892  493s
+[PREDICT] features_val.parquet group 1001/1390  rows 38,047,222  547s
+[PREDICT] features_val.parquet group 1101/1390  rows 41,865,150  639s
+[PREDICT] features_val.parquet group 1201/1390  rows 45,606,703  782s
+[PREDICT] features_val.parquet group 1301/1390  rows 49,635,118  934s
+[SAVE] results_fusion\pb_xgb_clf_ens_val_preds.csv  52,845,256 rows
+[PREDICT] features_test.parquet group 1/1334  rows 280,655  11s
+[PREDICT] features_test.parquet group 101/1334  rows 11,148,586  407s
+[PREDICT] features_test.parquet group 201/1334  rows 21,952,213  801s
+[PREDICT] features_test.parquet group 301/1334  rows 32,872,999  1,201s
+[PREDICT] features_test.parquet group 401/1334  rows 43,735,410  1,596s
+[PREDICT] features_test.parquet group 501/1334  rows 54,497,844  1,986s
+[PREDICT] features_test.parquet group 601/1334  rows 65,074,192  2,225s
+[PREDICT] features_test.parquet group 701/1334  rows 76,238,621  2,371s
+[PREDICT] features_test.parquet group 801/1334  rows 86,513,375  2,506s
+[PREDICT] features_test.parquet group 901/1334  rows 97,906,269  2,654s
+[PREDICT] features_test.parquet group 1001/1334  rows 108,369,817  2,789s
+[PREDICT] features_test.parquet group 1101/1334  rows 119,516,769  2,935s
+[PREDICT] features_test.parquet group 1201/1334  rows 130,202,721  3,076s
+[SETUP] xgboost 3.4.1, 212 features, seed 42
+[ENSEMBLE] seeds [42, 7, 13, 99, 23], 717 trees, tuned params from models_fusion\pb_xgb_clf_params.json
+[ENSEMBLE] reloaded 5 saved seed models
+[SKIP] results_fusion\pb_xgb_clf_ens_val_preds.csv already complete
+[PREDICT] features_test.parquet group 1/1334  rows 280,655  7s
+[PREDICT] features_test.parquet group 101/1334  rows 11,148,586  816s
+[PREDICT] features_test.parquet group 201/1334  rows 21,952,213  996s
+[PREDICT] features_test.parquet group 301/1334  rows 32,872,999  1,213s
+[PREDICT] features_test.parquet group 401/1334  rows 43,735,410  1,362s
+[PREDICT] features_test.parquet group 501/1334  rows 54,497,844  1,508s
+[PREDICT] features_test.parquet group 601/1334  rows 65,074,192  1,652s
+[PREDICT] features_test.parquet group 701/1334  rows 76,238,621  1,805s
+[PREDICT] features_test.parquet group 801/1334  rows 86,513,375  1,945s
+[PREDICT] features_test.parquet group 901/1334  rows 97,906,269  2,103s
+[PREDICT] features_test.parquet group 1001/1334  rows 108,369,817  2,245s
+[PREDICT] features_test.parquet group 1101/1334  rows 119,516,769  2,399s
+[PREDICT] features_test.parquet group 1201/1334  rows 130,202,721  2,548s
+[PREDICT] features_test.parquet group 1301/1334  rows 141,402,104  2,706s
+[SAVE] results_fusion\pb_xgb_clf_ens_test_preds.csv  144,739,479 rows
+exit 0

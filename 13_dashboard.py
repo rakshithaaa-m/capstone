@@ -229,6 +229,8 @@ def _source_signature(results: Path) -> str:
         results / "tier_cutoffs.json",
         results / "lstm_metrics.csv",
         results.parent / "models" / "hybrid_config.json",
+        # Must match build_dashboard_db.py's signature order exactly.
+        results.parent / "results_fusion" / "pa_urgency_test.csv",
     ]
     parts: list[str] = []
     for path in paths:
@@ -453,7 +455,7 @@ def get_flagged_drives_preview(
                        date,
                        hybrid_score AS risk_score,
                        risk_tier,
-                       lstm_rul_pred AS estimated_rul_days,
+                       fleet_urgency_pct,
                        CAST(date_diff('day', date, (SELECT MAX(date) FROM drive_status)) AS INTEGER)
                            AS observation_age_days
                 FROM drive_status
@@ -479,7 +481,7 @@ def get_flagged_drives_preview(
                        l.date,
                        l.hybrid_score AS risk_score,
                        l.risk_tier,
-                       CAST(NULL AS DOUBLE) AS estimated_rul_days,
+                       CAST(NULL AS DOUBLE) AS fleet_urgency_pct,
                        CAST(date_diff('day', l.date, b.latest_date) AS INTEGER)
                            AS observation_age_days
                 FROM latest l CROSS JOIN bounds b
@@ -523,7 +525,7 @@ def get_drive_detail(results_dir: str, serial_number: str) -> dict[str, Any] | N
             record = row.iloc[0].to_dict()
             record.pop("target", None)
             record["estimated_rul_days"] = record.pop("lstm_rul_pred", None)
-            return _json_safe_record(record)
+            return _json_safe_record(record)  # includes fleet_urgency_pct
 
         row = con.execute(
             f"""
@@ -728,8 +730,7 @@ def render_prediction(context: dict[str, Any], compact: bool = False) -> None:
     prediction = context.get("prediction", {})
     tier = str(prediction.get("risk_tier") or context.get("risk_tier") or "UNKNOWN").upper()
     score = float(prediction.get("risk_score", context.get("hybrid_score", 0.0)))
-    rul = prediction.get("estimated_rul_days", context.get("rul_days"))
-    rul_mae = prediction.get("rul_mae_days")
+    urgency = prediction.get("fleet_urgency_pct")
     as_of = prediction.get("as_of", context.get("date"))
     observation_age = prediction.get("observation_age_days")
     top_driver = prediction.get("top_driver_feature") or "Not available"
@@ -742,22 +743,15 @@ def render_prediction(context: dict[str, Any], compact: bool = False) -> None:
     c1.metric("LightGBM risk score" if tier_source == "lgbm_only" else "Hybrid score",
               f"{score:.4f}")
     c2.metric("Calibrated tier", tier.title())
-    rul_is_grade = bool(prediction.get("rul_is_decision_grade"))
-    rul_suffix = "" if rul_is_grade else "*"
     c3.metric(
-        "LSTM RUL (approx.)",
-        "—" if rul is None else f"≈ {float(rul):.0f} days{rul_suffix}",
+        "Fleet urgency",
+        "—" if urgency is None else f"sooner than {float(urgency):.0f}%",
+        help=(
+            "Share of the fleet the survival model expects to outlive this drive "
+            "(test C-index 0.75). A ranking for ordering work, not a day count."
+        ),
     )
     score_bar(score, tier, tier_source)
-    mae_text = (
-        f" · current LSTM test MAE {float(rul_mae):.0f} days"
-        if rul_mae is not None
-        else ""
-    )
-    if not rul_is_grade and rul is not None:
-        mae_text += " · not decision-grade for escalation"
-    if rul is not None and float(rul) < 0:
-        st.caption("LSTM emitted a negative RUL; treat it as invalid context until the model is recalibrated.")
     cutoffs = prediction.get("tier_cutoffs") or {}
     cutoff_text = ""
     if cutoffs.get("high") is not None and cutoffs.get("medium") is not None:
@@ -771,22 +765,10 @@ def render_prediction(context: dict[str, Any], compact: bool = False) -> None:
     )
     st.caption(
         f"{esc(context.get('drive_model', 'UNKNOWN'))} · last observed {esc(as_of or 'unknown')}{esc(age_text)} · "
-        f"tier from {esc(tier_source)} · top LightGBM driver: {esc(top_driver)} ({esc(direction)}){esc(mae_text)}{esc(cutoff_text)}"
+        f"tier from {esc(tier_source)} · top LightGBM driver: {esc(top_driver)} ({esc(direction)}){esc(cutoff_text)}"
     )
     if observation_age is not None and int(observation_age) > 30:
         st.caption("This is a last-known retrospective assessment, not live telemetry.")
-    if prediction.get("rul_coef_positive", prediction.get("rul_score_sign_inverted")):
-        relative = prediction.get("rul_coef_relative")
-        if relative is not None and float(relative) < 0.01:
-            st.caption(
-                "The raw-RUL coefficient is positive but negligible relative to "
-                "LightGBM; treat RUL as context only, not a standalone countdown."
-            )
-        else:
-            st.caption(
-                "The raw-RUL coefficient is positive; treat RUL as context, not "
-                "a standalone countdown."
-            )
 
     if not compact:
         panel(
@@ -838,7 +820,7 @@ def render_overview(
                 "date": "As of",
                 "risk_score": "Risk score",
                 "risk_tier": "Tier",
-                "estimated_rul_days": "LSTM RUL (approx.)",
+                "fleet_urgency_pct": "Fleet urgency (%)",
                 "observation_age_days": "Age (days)",
             }
         )
@@ -852,7 +834,10 @@ def render_overview(
             height=420,
             column_config={
                 "Risk score": st.column_config.NumberColumn(format="%.6f"),
-                "LSTM RUL (approx.)": st.column_config.NumberColumn(format="%.0f"),
+                "Fleet urgency (%)": st.column_config.NumberColumn(
+                    format="%.0f",
+                    help="Share of the fleet expected to outlive this drive; not a day count.",
+                ),
                 "Age (days)": st.column_config.NumberColumn(format="%d"),
             },
         )

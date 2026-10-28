@@ -1,0 +1,53 @@
+[LOAD] drives without a partner score: 0 of 308,202
+[COMBINER] B. logistic [prob, risk] refitted on 308,202 validation drives (2,770 ever-fail): {'intercept': -1.962099957166652, 'prob': 8.334622225398974, 'risk': 0.3696175611082737, 'drives': 308202, 'positives': 2770}
+[CACHE] drive dimension ...
+[CACHE] joining LightGBM and P-B test predictions ...
+[CACHE] 144,739,479 rows, 67,689 positives (expected 144,739,479 / 67,689)
+[DRIVE] 352,383 test drives, 5,254 ever-fail: LightGBM 0.59796  fused 0.59852  delta +0.00056
+[ROW] LightGBM AUPRC 0.083938  ROC 0.888671
+[ROW] fused    AUPRC 0.084340  ROC 0.888851
+[ROW] delta +0.000402 (+0.48% relative)
+[BOOT] sorting 2 x 144,739,479 rows by score ...
+[BOOT] 25/1000  (10.27s/rep, eta 166.9 min)
+[BOOT] 50/1000  (10.20s/rep, eta 161.6 min)
+[BOOT] 75/1000  (10.06s/rep, eta 155.1 min)
+[BOOT] 100/1000  (9.97s/rep, eta 149.6 min)
+[BOOT] 125/1000  (9.95s/rep, eta 145.2 min)
+[BOOT] 150/1000  (9.90s/rep, eta 140.2 min)
+[BOOT] 175/1000  (9.87s/rep, eta 135.7 min)
+[BOOT] 200/1000  (9.84s/rep, eta 131.1 min)
+[BOOT] 225/1000  (9.80s/rep, eta 126.6 min)
+[BOOT] 250/1000  (9.79s/rep, eta 122.3 min)
+[BOOT] 275/1000  (9.82s/rep, eta 118.6 min)
+[BOOT] 300/1000  (9.87s/rep, eta 115.1 min)
+[BOOT] 325/1000  (9.88s/rep, eta 111.2 min)
+[BOOT] 350/1000  (9.89s/rep, eta 107.1 min)
+[BOOT] 375/1000  (9.89s/rep, eta 103.0 min)
+[BOOT] 400/1000  (9.87s/rep, eta 98.7 min)
+[BOOT] 425/1000  (9.84s/rep, eta 94.3 min)
+[BOOT] 450/1000  (9.92s/rep, eta 90.9 min)
+[BOOT] 475/1000  (9.93s/rep, eta 86.9 min)
+[BOOT] 500/1000  (9.90s/rep, eta 82.5 min)
+[BOOT] 525/1000  (9.87s/rep, eta 78.1 min)
+[BOOT] 550/1000  (9.84s/rep, eta 73.8 min)
+[BOOT] 575/1000  (9.81s/rep, eta 69.5 min)
+[BOOT] 600/1000  (9.79s/rep, eta 65.2 min)
+[BOOT] 625/1000  (9.76s/rep, eta 61.0 min)
+[BOOT] 650/1000  (9.74s/rep, eta 56.8 min)
+[BOOT] 675/1000  (9.72s/rep, eta 52.7 min)
+[BOOT] 700/1000  (9.70s/rep, eta 48.5 min)
+[BOOT] 725/1000  (9.69s/rep, eta 44.4 min)
+[BOOT] 750/1000  (9.67s/rep, eta 40.3 min)
+[BOOT] 775/1000  (9.65s/rep, eta 36.2 min)
+[BOOT] 800/1000  (9.64s/rep, eta 32.1 min)
+[BOOT] 825/1000  (9.62s/rep, eta 28.1 min)
+[BOOT] 850/1000  (9.61s/rep, eta 24.0 min)
+[BOOT] 875/1000  (9.60s/rep, eta 20.0 min)
+[BOOT] 900/1000  (9.58s/rep, eta 16.0 min)
+[BOOT] 925/1000  (9.57s/rep, eta 12.0 min)
+[BOOT] 950/1000  (9.56s/rep, eta 8.0 min)
+[BOOT] 975/1000  (9.55s/rep, eta 4.0 min)
+[BOOT] 1000/1000  (9.54s/rep, eta 0.0 min)
+[BOOT] delta 95% CI [+0.000232, +0.000573]  B=1000  fused > LightGBM in 100.0%
+[VERDICT] REAL BUT IMMATERIAL
+[SAVE] results_fusion/pb_confirm.json

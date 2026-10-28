@@ -9,7 +9,7 @@ gigabytes.  This script builds a persistent DuckDB serving database once and
 adds compact tables for the dashboard:
 
 * ``drive_status``  - one latest row per physical drive, including the ML
-  hybrid score, tier, and LSTM RUL estimate.
+  hybrid score, tier, LSTM RUL estimate, and P-A fleet urgency (Stage 23).
 * ``drive_models``  - one drive model per serial number (when the test feature
   parquet is available).
 * ``mitigation``    - the small SHAP-to-action mapping, indexed by serial/date.
@@ -86,6 +86,7 @@ def build_serving_tables(
     risk_source: str,
     hybrid_source: str | None,
     models_available: bool,
+    urgency_source: str | None = None,
 ) -> None:
     """Build the compact latest-per-drive table from table or CSV sources."""
     # One row per serial number is all the current dashboard needs.  arg_max
@@ -120,6 +121,19 @@ def build_serving_tables(
         model_expr = "CAST(NULL AS VARCHAR)"
         model_join = ""
 
+    # Fleet urgency (Stage 23) is computed on each drive's latest test date;
+    # joining on the date too leaves it NULL rather than misattributed if the
+    # two exports ever disagree about which row is latest.
+    if urgency_source:
+        urgency_expr = "u.fleet_urgency_pct"
+        urgency_join = (
+            f"LEFT JOIN {urgency_source} u "
+            "ON u.serial_number = l.serial_number AND CAST(u.date AS DATE) = CAST(l.date AS DATE)"
+        )
+    else:
+        urgency_expr = "CAST(NULL AS DOUBLE)"
+        urgency_join = ""
+
     started = time.perf_counter()
     con.execute("BEGIN TRANSACTION")
     try:
@@ -139,9 +153,11 @@ def build_serving_tables(
                    l.risk_tier,
                    {lgbm_expr} AS lgbm_prob,
                    {lstm_expr} AS lstm_rul_pred,
+                   {urgency_expr} AS fleet_urgency_pct,
                    {model_expr} AS drive_model
             FROM latest l
             {hybrid_join}
+            {urgency_join}
             {model_join}
             """
         )
@@ -219,6 +235,7 @@ def main() -> None:
     cutoffs_path = results_dir / "tier_cutoffs.json"
     lstm_metrics_path = results_dir / "lstm_metrics.csv"
     hybrid_config_path = results_dir.parent / "models" / "hybrid_config.json"
+    urgency_path = results_dir.parent / "results_fusion" / "pa_urgency_test.csv"
     if not risk_path.exists():
         raise FileNotFoundError(
             f"Missing {risk_path}. Run Stage 9 (risk-tier calibration) first."
@@ -254,6 +271,7 @@ def main() -> None:
             cutoffs_path,
             lstm_metrics_path,
             hybrid_config_path,
+            urgency_path,
         )
         source_changed = bool(
             previous_version and current_version != previous_version
@@ -374,6 +392,11 @@ def main() -> None:
                 risk_source,
                 hybrid_source,
                 models_available=DRIVE_MODELS in table_names(con),
+                urgency_source=(
+                    f"read_csv_auto('{sql_path(urgency_path)}')"
+                    if urgency_path.exists()
+                    else None
+                ),
             )
         else:
             print(f"[BUILD] reusing current {DRIVE_STATUS} table")

@@ -1,0 +1,69 @@
+[SETUP] xgboost 3.4.1, 212 features, seed 42
+[LOAD] train 3,440,506 rows, positives 313,002
+[LOAD] val tuning sample 5,000,000 rows, positives 3,618
+[OPTUNA] 30 trials maximising validation AUPRC ...
+[OPTUNA] trial  0  val AUPRC 0.09673  trees 362
+[OPTUNA] trial  1  val AUPRC 0.09406  trees 521
+[OPTUNA] trial  2  val AUPRC 0.10014  trees 313
+[OPTUNA] trial  3  val AUPRC 0.10274  trees 419
+[OPTUNA] trial  4  val AUPRC 0.09987  trees 145
+[OPTUNA] trial  5  val AUPRC 0.08480  trees 185
+[OPTUNA] trial  6  val AUPRC 0.09537  trees 483
+[OPTUNA] trial  7  val AUPRC 0.08189  trees 162
+[OPTUNA] trial  8  val AUPRC 0.09457  trees 296
+[OPTUNA] trial  9  val AUPRC 0.10707  trees 103
+[OPTUNA] trial 10  val AUPRC 0.08972  trees 762
+[OPTUNA] trial 11  val AUPRC 0.11100  trees 717
+[OPTUNA] trial 12  val AUPRC 0.10678  trees 791
+[OPTUNA] trial 13  val AUPRC 0.09906  trees 641
+[OPTUNA] trial 14  val AUPRC 0.10600  trees 598
+[OPTUNA] trial 15  val AUPRC 0.10238  trees 647
+[OPTUNA] trial 16  val AUPRC 0.10377  trees 249
+[OPTUNA] trial 17  val AUPRC 0.08612  trees 101
+[OPTUNA] trial 18  val AUPRC 0.09936  trees 714
+[OPTUNA] trial 19  val AUPRC 0.09917  trees 522
+[OPTUNA] trial 20  val AUPRC 0.08518  trees 432
+[OPTUNA] trial 21  val AUPRC 0.10858  trees 799
+[OPTUNA] trial 22  val AUPRC 0.10670  trees 714
+[OPTUNA] trial 23  val AUPRC 0.10264  trees 721
+[OPTUNA] trial 24  val AUPRC 0.10380  trees 609
+[OPTUNA] trial 25  val AUPRC 0.10156  trees 800
+[OPTUNA] trial 26  val AUPRC 0.10941  trees 680
+[OPTUNA] trial 27  val AUPRC 0.10971  trees 678
+[OPTUNA] trial 28  val AUPRC 0.09729  trees 657
+[OPTUNA] trial 29  val AUPRC 0.10055  trees 570
+[OPTUNA] best val AUPRC 0.11100
+[TRAIN] final model: {'objective': 'binary:logistic', 'eval_metric': 'aucpr', 'tree_method': 'hist', 'nthread': -1, 'verbosity': 0, 'learning_rate': 0.057980986458581414, 'max_depth': 5, 'min_child_weight': 8.37978303236319, 'subsample': 0.8279679066657979, 'colsample_bytree': 0.6137903214576531, 'reg_alpha': 0.06555362890862776, 'reg_lambda': 0.0011425890727928423, 'seed': 42}  trees 717
+[TRAIN] val tuning-sample AUPRC 0.11100  ROC-AUC 0.90548
+[SAVE] models_fusion\pb_xgb_clf.json
+[PREDICT] features_val.parquet group 1/1390  rows 53,270  2s
+[PREDICT] features_val.parquet group 101/1390  rows 3,975,964  27s
+[PREDICT] features_val.parquet group 201/1390  rows 7,599,225  48s
+[PREDICT] features_val.parquet group 301/1390  rows 11,407,699  71s
+[PREDICT] features_val.parquet group 401/1390  rows 15,309,969  93s
+[PREDICT] features_val.parquet group 501/1390  rows 19,029,691  115s
+[PREDICT] features_val.parquet group 601/1390  rows 22,711,392  136s
+[PREDICT] features_val.parquet group 701/1390  rows 26,717,374  160s
+[PREDICT] features_val.parquet group 801/1390  rows 30,460,800  182s
+[PREDICT] features_val.parquet group 901/1390  rows 34,129,892  203s
+[PREDICT] features_val.parquet group 1001/1390  rows 38,047,222  226s
+[PREDICT] features_val.parquet group 1101/1390  rows 41,865,150  248s
+[PREDICT] features_val.parquet group 1201/1390  rows 45,606,703  270s
+[PREDICT] features_val.parquet group 1301/1390  rows 49,635,118  293s
+[SAVE] results_fusion\pb_xgb_clf_val_preds.csv  52,845,256 rows
+[PREDICT] features_test.parquet group 1/1334  rows 280,655  2s
+[PREDICT] features_test.parquet group 101/1334  rows 11,148,586  65s
+[PREDICT] features_test.parquet group 201/1334  rows 21,952,213  127s
+[PREDICT] features_test.parquet group 301/1334  rows 32,872,999  190s
+[PREDICT] features_test.parquet group 401/1334  rows 43,735,410  252s
+[PREDICT] features_test.parquet group 501/1334  rows 54,497,844  314s
+[PREDICT] features_test.parquet group 601/1334  rows 65,074,192  374s
+[PREDICT] features_test.parquet group 701/1334  rows 76,238,621  438s
+[PREDICT] features_test.parquet group 801/1334  rows 86,513,375  497s
+[PREDICT] features_test.parquet group 901/1334  rows 97,906,269  562s
+[PREDICT] features_test.parquet group 1001/1334  rows 108,369,817  622s
+[PREDICT] features_test.parquet group 1101/1334  rows 119,516,769  687s
+[PREDICT] features_test.parquet group 1201/1334  rows 130,202,721  748s
+[PREDICT] features_test.parquet group 1301/1334  rows 141,402,104  812s
+[SAVE] results_fusion\pb_xgb_clf_test_preds.csv  144,739,479 rows
+exit 0

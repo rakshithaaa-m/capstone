@@ -1,0 +1,8 @@
+{
+  "reference": "latest P-A prediction per drive, validation split",
+  "reference_drives": 308202,
+  "test_drives": 352383,
+  "definition": "share of the reference fleet P-A expects to outlive the drive",
+  "test_c_index": 0.7491,
+  "source": "results_fusion/FINDINGS_P-A.md"
+}

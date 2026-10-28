@@ -1,0 +1,24 @@
+{
+  "combiner": "B. logistic [prob, risk]",
+  "coefficients": {
+    "intercept": -1.962099957166652,
+    "prob": 8.334622225398974,
+    "risk": 0.3696175611082737,
+    "drives": 308202,
+    "positives": 2770
+  },
+  "row_auprc_lgbm": 0.08393801402281403,
+  "row_auprc_fused": 0.08434031373832089,
+  "row_roc_lgbm": 0.8886709964888508,
+  "row_roc_fused": 0.8888511220124664,
+  "row_delta": 0.00040229971550685695,
+  "ci95": [
+    0.00023215208771384978,
+    0.0005727902034881049
+  ],
+  "boot": 1000,
+  "drive_auprc_lgbm": 0.5979604978916577,
+  "drive_auprc_fused": 0.5985233114398794,
+  "margin": 0.003,
+  "verdict": "REAL BUT IMMATERIAL"
+}
