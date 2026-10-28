@@ -1,5 +1,10 @@
 # RUNBOOK — full re-run after the model fixes
 
+> **Status (2026-10-28):** this re-run was carried out on 10–12 Oct 2026
+> (Stage 7 on 10 Oct, Stage 8 on 12 Oct, which chose `lgbm_only`), and
+> `results/` reflects it. The steps below stay valid as the procedure for
+> re-running stages 7–14. The "not yet reflected" wording below is historical.
+
 Two model changes are in the working tree and **not** yet reflected in
 `results/`:
 

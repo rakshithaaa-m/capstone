@@ -91,10 +91,9 @@ cutoffs decide the tiers the dashboard and agent read. If you retrain the
 LSTM or change the fusion encoding, you must re-run the whole chain below or
 the dashboard will silently serve stale numbers.
 
-Current state: the shipped `models/lstm_model.pt` and
-`models/hybrid_config.json` on disk predate the Softplus-head and
-horizon-bounded-fusion fixes, so `results/` is **stale** relative to the
-code. Re-run in this order before regenerating any paper table:
+Current state (2026-10-28): the re-run was done on 10–12 Oct 2026 and
+`results/` matches the code (see `RUNBOOK.md`). If you change Stage 7 or 8
+again, re-run in this order before regenerating any paper table:
 
 ```bash
 # Stage 7 - LSTM (Softplus head; records full provenance in lstm_config.json)
@@ -172,9 +171,10 @@ so the dashboard fingerprint matches:
 python build_dashboard_db.py --results_dir results
 ```
 
-The dashboard tracks the size and mtime of six artifacts
+The dashboard tracks the size and mtime of seven artifacts
 (`risk_tiers_test.csv`, `hybrid_test_scores.csv`, `mitigation_mapping.json`,
-`tier_cutoffs.json`, `lstm_metrics.csv`, `models/hybrid_config.json`). If any
+`tier_cutoffs.json`, `lstm_metrics.csv`, `models/hybrid_config.json`,
+`results_fusion/pa_urgency_test.csv`). If any
 of them change, every cached serving query is invalidated automatically and
 the sidebar shows a "rebuild the serving DB" warning until you do.
 
