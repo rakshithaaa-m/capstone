@@ -141,6 +141,10 @@ pip install -r requirements.txt
 
 Tested with Python 3.12, LightGBM 4.7, XGBoost 3.4, DuckDB 1.5 and
 Streamlit 1.62, on a 16 GB laptop (RTX 3050 6 GB, used only by the LSTM).
+For the exact tested versions, run `pip install -r requirements-lock.txt`
+instead. A fresh install from the loose `requirements.txt` also works: on
+2026-10-28 the agent and its evaluation passed on the newer versions it
+resolved.
 
 **Dashboard.** It needs the Stage 6–12 exports in `results/` and the fleet
 urgency file:
