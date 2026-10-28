@@ -60,12 +60,26 @@ often this happens.
 
 32,794 of 32,794 at-risk drives have a SHAP-based mapping.
 
-- **28,703 (87.5%)** get a specific root cause. The most common top drivers are
-  `error_total` (14,253), `smart_5_raw` (9,237) and `smart_9_raw` (4,052).
-- **4,091 (12.5%)** get the generic fallback. Their top driver (mostly
-  `smart_4_raw` and `smart_226_raw`) has no lookup entry.
+| | specific root cause | generic fallback |
+|---|---|---|
+| first evaluation | 28,703 (87.5%) | 4,091 (12.5%) |
+| after adding `smart_4_raw` and `smart_226_raw` | **30,734 (93.7%)** | **2,060 (6.3%)** |
 
-Adding entries for those two attributes is the cheapest way to raise coverage.
+The most common top drivers are `error_total` (14,253), `smart_5_raw` (9,237)
+and `smart_9_raw` (4,052).
+
+The two added attributes were the largest uncovered drivers: 1,381 and 650
+drives, nearly all MEDIUM.
+- SMART 4 is the spindle start/stop count.
+- SMART 226 is the Toshiba head load-in time.
+
+Both appear almost only on Toshiba models, so the entries say that part of the
+signal may reflect the drive family. As secondary wear indicators, neither
+carries a replacement deadline. Regenerating the mapping changed exactly those
+2,031 records.
+
+The remaining fallback is spread thinly over many attributes. The largest are
+`smart_12_raw` (396), `smart_1_raw` (321) and `smart_193_raw` (204).
 
 ## 4. Live mode (Claude): harness ready, not yet run
 

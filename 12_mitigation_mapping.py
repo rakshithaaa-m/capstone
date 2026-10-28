@@ -90,6 +90,22 @@ ROOT_CAUSE_LOOKUP = {
         "action": "Add to the standard replacement rotation; not urgent on its own, but worth combining "
                    "with other degradation signals.",
     },
+    # smart_4 and smart_226 are top drivers almost only on Toshiba drives
+    # (1,381 and 650 at-risk drives on the 2026-10-28 test queue), so part of
+    # the signal may be the drive family rather than wear on this unit.
+    "smart_4_raw": {
+        "root_cause": "Spindle start/stop count is high relative to the fleet -- frequent spin-up and "
+                       "spin-down cycles add mechanical wear to the motor and bearings. Seen mainly on "
+                       "Toshiba models, where part of the signal may reflect the drive family.",
+        "action": "Check power-management and spin-down settings for this drive's host; increase SMART "
+                   "polling and cross-check reallocated and pending sectors before scheduling replacement.",
+    },
+    "smart_226_raw": {
+        "root_cause": "Head load-in time is elevated (Toshiba attribute 226; meaning is vendor-dependent) -- "
+                       "the heads take longer to load from the ramp, an early mechanical wear signal.",
+        "action": "Increase SMART polling to daily; cross-check load-cycle count (193) and reallocated "
+                   "sectors, and flag for replacement if the load-in time keeps rising.",
+    },
     "smart_5_raw": {
         "root_cause": "Reallocated sector count rising — the drive is remapping bad sectors to spare storage.",
         "action": "Schedule replacement within 7 days; increase SMART polling to daily in the meantime.",
