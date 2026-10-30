@@ -26,7 +26,7 @@ OUT = Path(__file__).with_name("DiskGuard_paper_draft.docx")
 
 # Headline row-level AUPRC interval: results/paper_tables/table_row_auprc_ci_full.csv
 # (26_row_auprc_ci.py, B = 1000, full drive bootstrap).
-ROW_CI = "[[CI pending: 26_row_auprc_ci.py]]"
+ROW_CI = "[0.0787, 0.0897]"
 
 doc = Document()
 
@@ -134,6 +134,8 @@ def table(caption: str, header: list[str], rows: list[list[str]], widths_cm: lis
             c.width = Cm(widths_cm[j])
             c.paragraphs[0].text = ""
             runs(c.paragraphs[0], val)
+            # keep short tables on one page
+            c.paragraphs[0].paragraph_format.keep_with_next = i < len(rows)
             for run in c.paragraphs[0].runs:
                 run.font.size = Pt(9.5)
                 if i == 0:
@@ -466,7 +468,7 @@ P("[[To be compiled from the [CITE] placeholders; verify every entry against the
 H1("Appendix A. Reproducibility")
 P("All stages are scripted; the repository README and RUNBOOK give the commands, and "
   "requirements-lock.txt pins the tested environment. Evaluated-but-not-adopted models are archived "
-  "with their records. Results files backing each table: Table 2 — results/lgbm_metrics.csv, "
+  "with their records. Results files backing each table: Table 2 — results/lgbm_metrics.csv, results/paper_tables/table_row_auprc_ci_full.csv (26_row_auprc_ci.py), "
   "results/paper_tables/; Tables 3–4 — results/paper_tables/table_tier_accuracy.csv, "
   "results/tier_accuracy_test.csv, results_ablation/leadtime_curve.csv; Table 5 — "
   "results/datacenter_holdout.csv; Table 6 — results/agent_eval/.", align=WD_ALIGN_PARAGRAPH.LEFT)
