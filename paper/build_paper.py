@@ -159,7 +159,8 @@ P("Hard-drive failures in large storage fleets are rare on any given day but fre
   "LightGBM ensemble over 212 SMART-derived features predicts failure within 14 days; evaluated on a "
   "15-month held-out period at true prevalence (0.047% positive drive-days, 352,383 drives), it "
   "reaches a row-level AUPRC of **0.0839** (179× the base rate) and a drive-level AUPRC of **0.598** "
-  "(95% CI 0.586–0.611). Recall-calibrated risk tiers place 66.9% of failing drives in the HIGH tier "
+  "(95% CI 0.586–0.611). Re-scoring the same predictions on a 1:1 undersampled test set "
+  "would report an AUPRC of 0.917 and 98% alert precision instead of 2.7%. Recall-calibrated risk tiers place 66.9% of failing drives in the HIGH tier "
   "at 56% precision, and 51% of failing drives are already HIGH 14 days before failure. Because no "
   "model we tested produced a trustworthy day count, urgency is expressed as a fleet ranking from an "
   "XGBoost accelerated-failure-time model (C-index 0.749) rather than a countdown. Exact TreeSHAP "
@@ -187,7 +188,8 @@ P("Failure within a short horizon is a rare event. In our test period 0.047% of 
   "accuracy — and, to a lesser degree, ROC-AUC — reveals little about whether the top of the ranking, "
   "where an operator will actually look, is any good [CITE: Saito & Rehmsmeier, 2015]. Results "
   "reported on class-balanced or downsampled test sets change the base rate and are not comparable "
-  "with deployment. A further gap is operational: a probability alone does not tell an operator "
+  "with deployment: on our own model, a 1:1 test set raises AUPRC from 0.084 to 0.917 (Section 6.2). "
+  "A further gap is operational: a probability alone does not tell an operator "
   "*which* drive to replace first, *why*, or *what to do*.")
 H2("1.3 This work")
 P("We build and evaluate a complete system that answers four operational questions for every drive "
@@ -199,7 +201,8 @@ H2("1.4 Contributions")
 numbered([
     "**Failure prediction at true prevalence.** A five-seed LightGBM ensemble evaluated on 144.7 million "
     "held-out drive-days without downsampling, with drive-clustered bootstrap intervals, a lead-time "
-    "analysis and a calibration check.",
+    "analysis and a calibration check, together with a measurement of how much common evaluation "
+    "shortcuts inflate the same model's reported metrics (up to elevenfold in AUPRC).",
     "**Recall-calibrated risk tiers** fixed on validation and reported on test at both drive and "
     "drive-day level.",
     "**Urgency as a ranking, not a countdown.** We show that a survival model ranks time-to-failure "
@@ -259,7 +262,7 @@ P("The model uses **212 features**: 83 raw and 83 normalised SMART attributes, 3
   "Features are computed on each drive's full history before splitting, so rolling windows at the "
   "start of a split use real earlier readings; all windows look backwards only. Missing values are "
   "imputed with training-period medians. Five infrastructure identifiers (vault, pod, cluster, pod "
-  "slot and a legacy-format flag) are excluded; Section 6.3 tests that choice.")
+  "slot and a legacy-format flag) are excluded; Section 6.5 tests that choice.")
 
 # ------------------------------------------------------------------ 4
 H1("4. System Design")
@@ -283,7 +286,7 @@ P("Operators also need to know which drive to replace first. We fit an XGBoost a
   "model [CITE: Barnwal et al., 2022] on the same features with interval-censored labels: a failing "
   "drive contributes its observed remaining life, and a surviving drive contributes a lower bound "
   "equal to its remaining observed time in the split. Its absolute day estimates proved unreliable "
-  "(Section 5.3), so the system reports a ranking instead: **fleet urgency** is the share of a "
+  "(Section 6.4), so the system reports a ranking instead: **fleet urgency** is the share of a "
   "reference fleet (each validation drive's latest prediction) that the model expects to outlive the "
   "drive. A drive at 92% is expected to fail sooner than 92% of the fleet. By design, urgency orders "
   "work *within* a tier and never moves a drive to a higher tier.")
@@ -328,10 +331,10 @@ P("For each failing test drive we check whether it was already in the HIGH tier 
   "score and the expected calibration error (ECE) over ten equal-width bins.")
 H2("5.3 Pre-registered studies")
 P("Two studies fixed their decision rules before any result was seen, with deviations logged: an "
-  "ablation of infrastructure identifiers, and an evaluation of model fusion (Section 6.5). Both use "
+  "ablation of infrastructure identifiers, and an evaluation of model fusion (Section 6.6). Both use "
   "a materiality margin of ±0.003 AUPRC and paired drive-clustered bootstraps (B = 1000).")
 H2("5.4 Agent evaluation")
-P("One set of invariants (Table 6) is applied to three decision-makers: the rule policy, a scripted "
+P("One set of invariants (Table 7) is applied to three decision-makers: the rule policy, a scripted "
   "adversarial model that replaces the language-model API, and the live model. A regular-expression "
   "detector flags any stated time-to-failure (\"fails in N days\", \"N days left\") while allowing "
   "scheduling language and data-age notes; it was unit-tested on positive and negative phrases.")
@@ -351,18 +354,47 @@ table("Table 2. Test-set performance (true prevalence).",
       [4.5, 5.5, 6.0])
 P("The ensemble ranks failing drive-days 179 times better than chance and 4.6 times better than "
   "logistic regression. Ensembling five seeds is worth +0.002 AUPRC over the average single seed — "
-  "comparable to the effects studied in Section 6.4, which is why every comparison holds the ensemble "
-  "fixed. The most influential features (mean |SHAP|) are raw read error rate (`smart_1_raw`), the "
+  "comparable to the effects studied in Sections 6.5 and 6.6, which is why every comparison holds the "
+  "ensemble fixed. The most influential features (mean |SHAP|) are raw read error rate (`smart_1_raw`), the "
   "combined error total, normalised SMART 18, normalised SMART 1 and raw start/stop count (`smart_4_raw`).")
-H2("6.2 Risk tiers and lead time")
-table("Table 3. Risk tiers on test (cutoffs fixed on validation).",
+H2("6.2 How evaluation shortcuts inflate the same model")
+P("To show why we report only true-prevalence results, Table 3 re-scores the **same** test predictions "
+  "of the shipped model under evaluation shortcuts common in the drive-failure literature. Nothing "
+  "about the model changes; only the composition of the evaluation set does. This analysis is post hoc "
+  "and descriptive, and no system decision depends on it.")
+table("Table 3. The same LightGBM scores under different evaluation protocols (test split).",
+      ["Evaluation protocol", "Negatives per positive", "AUPRC", "ROC-AUC", "Precision at 0.62",
+       "Best F1", "Accuracy at 0.62"],
+      [["**True prevalence (this paper)**", "2,137", "**0.084**", "0.889", "2.7%", "0.17", "98.99%"],
+       ["\"Never fails\" rule", "2,137", "0.0005", "0.500", "—", "0", "**99.95%**"],
+       ["Negatives from never-failing drives only", "2,122", "0.130", "0.890", "3.4%", "0.22", "99.18%"],
+       ["Negatives undersampled to 1:100", "100", "0.459", "0.889", "37.5%", "0.50", "98.62%"],
+       ["Negatives undersampled to 1:10", "10", "0.738", "0.889", "85.7%", "0.72", "95.45%"],
+       ["Negatives undersampled to 1:1", "1", "**0.917**", "0.889", "**98.4%**", "0.83", "79.47%"]],
+      [4.2, 2.0, 1.6, 1.7, 2.2, 1.6, 2.2])
+P("Every positive drive-day is kept in every protocol, so recall at the alert threshold is 59.9% "
+  "throughout. Undersampled rows are means over ten random draws; across draws AUPRC varies by at most "
+  "±0.002 and precision by less than ±0.005. \"Best F1\" is the maximum over all thresholds, as reported "
+  "by a study that tunes its threshold on the evaluation data.")
+P("Undersampling the test set to a 1:1 balance, as in several published studies [CITE: studies evaluated on balanced test sets], raises AUPRC elevenfold, from "
+  "0.084 to 0.917, and precision at the deployed threshold from 2.7% to 98.4%. An operator acting on "
+  "that figure would expect almost every alert to be a real failure, when in deployment about one in "
+  "37 is. A quieter shortcut — drawing negatives only from drives that never fail, which removes the "
+  "hard negatives in a failing drive's earlier life — still inflates AUPRC by 55%. ROC-AUC is "
+  "unchanged at 0.889 under every protocol: it is insensitive to the base rate, which is why it can "
+  "neither expose these shortcuts nor describe the alert precision an operator will see. Accuracy is "
+  "highest for the rule that never predicts a failure. Results from downsampled test sets are "
+  "therefore not comparable with the numbers in this paper, and we compare only against "
+  "true-prevalence evaluations.")
+H2("6.3 Risk tiers and lead time")
+table("Table 4. Risk tiers on test (cutoffs fixed on validation).",
       ["Tier", "Drives flagged", "Failing drives caught", "Precision", "Share of failing drive-days"],
       [["HIGH (≥ 0.764)", "6,282", "3,516 (66.9%)", "56.0%", "52.3%"],
        ["MEDIUM (≥ 0.069)", "26,512", "824 (15.7%)", "3.1%", "23.2%"],
        ["HIGH + MEDIUM", "32,794", "4,340 (82.6%)", "13.2%", "75.5%"],
        ["LOW", "319,589", "914 (17.4%)", "0.3%", "24.5%"]],
       [3.2, 2.6, 3.6, 2.2, 4.4])
-table("Table 4. Lead time: failing drives already in the HIGH tier before failure.",
+table("Table 5. Lead time: failing drives already in the HIGH tier before failure.",
       ["Days before failure", "30", "14", "7", "1"],
       [["Share in HIGH", "43.0%", "50.7%", "54.9%", "63.5%"],
        ["Failing drives observed", "4,764", "4,915", "4,939", "5,009"]],
@@ -372,7 +404,7 @@ P("The HIGH tier is small (1.8% of drives) and precise enough to act on directly
   "they fail. The tiers were calibrated to capture 50% and 80% of failing drive-days on validation and "
   "capture 52.3% and 75.5% on test, so the calibration transfers to a later period. The 17.4% of "
   "failing drives that remain LOW reflect a known limit of SMART: many failures give no warning.")
-H2("6.3 Urgency ranking")
+H2("6.4 Urgency ranking")
 P("On each test drive's first observation (352,197 drives, 5,341 failing), the survival model "
   "achieves a concordance index of **0.749**: for a random comparable pair it orders time-to-failure "
   "correctly three times in four. Its absolute estimates are not usable, however — on failing drives "
@@ -381,11 +413,11 @@ P("On each test drive's first observation (352,197 drives, 5,341 failing), the s
   "fleet urgency, the ranking agrees with the classifier's tiers without being redundant: mean "
   "urgency is 99.4% in HIGH, 86.0% in MEDIUM and 53.9% in LOW. Within a tier it orders work; it "
   "never moves a drive between tiers.")
-H2("6.4 Robustness")
+H2("6.5 Robustness")
 P("**Infrastructure identifiers (pre-registered).** Restoring the five identifiers changes row-level "
   "AUPRC by −0.00014 (95% CI −0.0025 to +0.0022). The interval lies within the ±0.003 margin, so the "
   "pre-registered verdict is *equivalence*: the model does not depend on where a drive is installed.")
-table("Table 5. Whole-datacenter hold-out (3,000,000-row scoring samples; lift = AUPRC / prevalence).",
+table("Table 6. Whole-datacenter hold-out (3,000,000-row scoring samples; lift = AUPRC / prevalence).",
       ["Fold", "Held-out site", "AUPRC", "Lift", "Size-matched control lift"],
       [["phx1", "held out", "0.0826", "216", "90"],
        ["sac0", "held out", "0.0650", "141", "90"],
@@ -397,7 +429,7 @@ P("**Portability.** Holding out an entire datacenter does not degrade ranking: e
   "training data. The test covers the 68% of drives whose site is published.")
 P("**Calibration.** Brier score 0.0107; ECE 0.040. Scores are ranking scores and should not be read "
   "as probabilities; decisions use the tiers.")
-H2("6.5 Alternatives evaluated")
+H2("6.6 Alternatives evaluated")
 P("LightGBM was compared, under pre-registered decision rules, with a recurrent (LSTM) "
   "remaining-useful-life model and with combinations of LightGBM and a second model — the LSTM's "
   "estimate, the survival model above, and a separately tuned XGBoost classifier. None improved on "
@@ -407,8 +439,8 @@ P("LightGBM was compared, under pre-registered decision rules, with a recurrent 
   "bands of LightGBM's own score the LSTM's estimate ranks failures barely better than chance, and a "
   "second boosted model on the same features largely agrees with LightGBM. The deployed system "
   "therefore uses LightGBM alone for prediction.")
-H2("6.6 Agent evaluation")
-table("Table 6. Agent invariants on the rule policy (all 32,794 at-risk drives and 2,000 LOW drives).",
+H2("6.7 Agent evaluation")
+table("Table 7. Agent invariants on the rule policy (all 32,794 at-risk drives and 2,000 LOW drives).",
       ["Invariant", "Applicable", "Failures"],
       [["Prediction returned unchanged", "34,794", "0"],
        ["LOW drive gets no tools and no ticket", "2,000", "0"],
@@ -468,10 +500,11 @@ P("[[To be compiled from the [CITE] placeholders; verify every entry against the
 H1("Appendix A. Reproducibility")
 P("All stages are scripted; the repository README and RUNBOOK give the commands, and "
   "requirements-lock.txt pins the tested environment. Evaluated-but-not-adopted models are archived "
-  "with their records. Results files backing each table: Table 2 — results/lgbm_metrics.csv, results/paper_tables/table_row_auprc_ci_full.csv (26_row_auprc_ci.py), "
-  "results/paper_tables/; Tables 3–4 — results/paper_tables/table_tier_accuracy.csv, "
-  "results/tier_accuracy_test.csv, results_ablation/leadtime_curve.csv; Table 5 — "
-  "results/datacenter_holdout.csv; Table 6 — results/agent_eval/.", align=WD_ALIGN_PARAGRAPH.LEFT)
+  "with their records. Results files backing each table: Table 2 — results/lgbm_metrics.csv, results/paper_tables/table_row_auprc_ci_full.csv (26_row_auprc_ci.py); Table 3 — "
+  "results/paper_tables/table_prevalence_inflation.csv (27_prevalence_inflation.py); "
+  "results/paper_tables/; Tables 4–5 — results/paper_tables/table_tier_accuracy.csv, "
+  "results/tier_accuracy_test.csv, results_ablation/leadtime_curve.csv; Table 6 — "
+  "results/datacenter_holdout.csv; Table 7 — results/agent_eval/.", align=WD_ALIGN_PARAGRAPH.LEFT)
 
 doc.save(OUT)
 print(f"[SAVE] {OUT}")

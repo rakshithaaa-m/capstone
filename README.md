@@ -103,6 +103,8 @@ the training period, and the tier cutoffs are fitted on validation.
 | `20_train_xgb_aft.py` | P-A survival model, the source of fleet urgency |
 | `23_pa_urgency.py` | fleet-urgency ranking served by the dashboard and agent |
 | `25_agent_eval.py` | agent evaluation: policy audit, red team, live harness → `results/agent_eval/` |
+| `26_row_auprc_ci.py` | headline row-level AUPRC CI, full drive bootstrap (B = 1000) → `results/paper_tables/` |
+| `27_prevalence_inflation.py` | same scores under undersampled / healthy-only evaluation protocols (paper Table 3) → `results/paper_tables/` |
 
 The `fix*.py`, `check_*.py`, `verify_*.py` and `diagnose_*.py` files are
 one-off diagnostics kept for provenance.
