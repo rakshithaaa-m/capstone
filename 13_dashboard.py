@@ -227,7 +227,6 @@ def _source_signature(results: Path) -> str:
         results / "hybrid_test_scores.csv",
         results / "mitigation_mapping.json",
         results / "tier_cutoffs.json",
-        results / "lstm_metrics.csv",
         results.parent / "models" / "hybrid_config.json",
         # Must match build_dashboard_db.py's signature order exactly.
         results.parent / "results_fusion" / "pa_urgency_test.csv",
@@ -524,7 +523,6 @@ def get_drive_detail(results_dir: str, serial_number: str) -> dict[str, Any] | N
                 return None
             record = row.iloc[0].to_dict()
             record.pop("target", None)
-            record["estimated_rul_days"] = record.pop("lstm_rul_pred", None)
             return _json_safe_record(record)  # includes fleet_urgency_pct
 
         row = con.execute(
@@ -540,19 +538,6 @@ def get_drive_detail(results_dir: str, serial_number: str) -> dict[str, Any] | N
         if row.empty:
             return None
         record = row.iloc[0].to_dict()
-        record["estimated_rul_days"] = None
-        if hybrid_source:
-            lstm = con.execute(
-                f"""
-                SELECT lstm_rul_pred
-                FROM {hybrid_source}
-                WHERE serial_number = ? AND date = ?
-                LIMIT 1
-                """,
-                [str(serial_number), record.get("date")],
-            ).fetchdf()
-            if not lstm.empty:
-                record["estimated_rul_days"] = lstm.iloc[0]["lstm_rul_pred"]
         return _json_safe_record(record)
     finally:
         con.close()
@@ -867,10 +852,8 @@ def render_overview(
                 )
                 metric_card("HIGH-tier capture", f"{recall:.1%}", "held-out test")
         st.caption(
-            "Shipped predictor: LightGBM (5-seed ensemble). Fusing it with the LSTM, "
-            "a survival model and a second boosted model was tested under a "
-            "pre-registered protocol; none cleared the materiality margin "
-            "(results_fusion/)."
+            "Predictor: LightGBM (5-seed ensemble). More complex combinations "
+            "were evaluated and did not beat it (archive/fusion_study/)."
         )
         if not tier_accuracy.empty and "cumulative_share_captured" in tier_accuracy:
             st.caption("Cutoffs were calibrated on validation; the capture shown here is held-out test.")

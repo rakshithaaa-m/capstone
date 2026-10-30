@@ -9,7 +9,7 @@ gigabytes.  This script builds a persistent DuckDB serving database once and
 adds compact tables for the dashboard:
 
 * ``drive_status``  - one latest row per physical drive, including the ML
-  hybrid score, tier, LSTM RUL estimate, and P-A fleet urgency (Stage 23).
+  LightGBM score, tier, and P-A fleet urgency (Stage 23).
 * ``drive_models``  - one drive model per serial number (when the test feature
   parquet is available).
 * ``mitigation``    - the small SHAP-to-action mapping, indexed by serial/date.
@@ -93,24 +93,21 @@ def build_serving_tables(
     # is considerably cheaper than joining the 145M-row hybrid export back to
     # every historical row before reducing it to the latest reading.  The
     # latest hybrid date is joined back to the risk date so a missing/misaligned
-    # source row becomes NULL rather than silently attaching the wrong RUL.
+    # source row becomes NULL rather than silently attaching the wrong score.
     if hybrid_source:
         hybrid_select = f"""
             SELECT serial_number,
                    arg_max(lgbm_prob, date) AS lgbm_prob,
-                   arg_max(lstm_rul_pred, date) AS lstm_rul_pred,
                    arg_max(date, date) AS latest_date
             FROM {hybrid_source}
             GROUP BY serial_number
         """
-        lstm_expr = "h.lstm_rul_pred"
         lgbm_expr = "h.lgbm_prob"
         hybrid_join = (
             f"LEFT JOIN ({hybrid_select}) h "
             "ON h.serial_number = l.serial_number AND h.latest_date = l.date"
         )
     else:
-        lstm_expr = "CAST(NULL AS DOUBLE)"
         lgbm_expr = "CAST(NULL AS DOUBLE)"
         hybrid_join = ""
 
@@ -152,7 +149,6 @@ def build_serving_tables(
                    l.hybrid_score,
                    l.risk_tier,
                    {lgbm_expr} AS lgbm_prob,
-                   {lstm_expr} AS lstm_rul_pred,
                    {urgency_expr} AS fleet_urgency_pct,
                    {model_expr} AS drive_model
             FROM latest l
@@ -233,7 +229,6 @@ def main() -> None:
     hybrid_path = results_dir / "hybrid_test_scores.csv"
     mitigation_path = results_dir / "mitigation_mapping.json"
     cutoffs_path = results_dir / "tier_cutoffs.json"
-    lstm_metrics_path = results_dir / "lstm_metrics.csv"
     hybrid_config_path = results_dir.parent / "models" / "hybrid_config.json"
     urgency_path = results_dir.parent / "results_fusion" / "pa_urgency_test.csv"
     if not risk_path.exists():
@@ -269,7 +264,6 @@ def main() -> None:
             hybrid_path,
             mitigation_path,
             cutoffs_path,
-            lstm_metrics_path,
             hybrid_config_path,
             urgency_path,
         )
@@ -325,7 +319,7 @@ def main() -> None:
                 con.execute(f"DROP TABLE {HYBRID_SCORES}")
                 have_hybrid_table = False
                 print(f"[BUILD] removed stale {HYBRID_SCORES} table")
-            print(f"[BUILD] warning: {hybrid_path.name} not found; RUL will be unavailable")
+            print(f"[BUILD] warning: {hybrid_path.name} not found; lgbm_prob will be unavailable")
 
         if source_changed and not args.rebuild_sources and not args.keep_source_tables:
             print(

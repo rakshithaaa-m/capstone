@@ -292,23 +292,6 @@ def _load_json_object(path_string: str, modified_ns: int) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-@lru_cache(maxsize=8)
-def _load_rul_mae(path_string: str, modified_ns: int) -> float | None:
-    """Return the held-out LSTM MAE used to qualify RUL-based escalation."""
-    del modified_ns
-    path = Path(path_string)
-    if not path.exists():
-        return None
-    try:
-        frame = pd.read_csv(path)
-        if frame.empty or "mae" not in frame.columns:
-            return None
-        value = float(frame.iloc[0]["mae"])
-        return value if math.isfinite(value) else None
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
-
-
 def _matching_mitigation(
     serial_number: str,
     as_of: str | None,
@@ -369,45 +352,6 @@ def _query_latest(con: Any, source: str, serial_number: str) -> pd.DataFrame:
         """,
         [str(serial_number)],
     ).fetchdf()
-
-
-def _query_rul(con: Any, results_dir: Path, serial_number: str, as_of: str | None,
-               tables: set[str]) -> float | None:
-    """Recover an exact-date RUL when the compact join produced NULL.
-
-    ``drive_status`` is deliberately not queried again: it is the row that
-    already produced the NULL.  A native hybrid table is preferred; when the
-    compact database intentionally dropped the large source tables, the CSV
-    fallback is used only for this rare misaligned-date case.
-    """
-    if not as_of:
-        return None
-
-    if "hybrid_scores" in tables:
-        row = con.execute(
-            """
-            SELECT lstm_rul_pred
-            FROM hybrid_scores
-            WHERE serial_number = ? AND date = ?
-            LIMIT 1
-            """,
-            [str(serial_number), as_of],
-        ).fetchone()
-        return float(row[0]) if row and row[0] is not None else None
-
-    hybrid_csv = results_dir / "hybrid_test_scores.csv"
-    if not hybrid_csv.exists():
-        return None
-    row = con.execute(
-        f"""
-        SELECT lstm_rul_pred
-        FROM read_csv_auto('{_sql_path(hybrid_csv)}')
-        WHERE serial_number = ? AND date = ?
-        LIMIT 1
-        """,
-        [str(serial_number), as_of],
-    ).fetchone()
-    return float(row[0]) if row and row[0] is not None else None
 
 
 def _query_model(con: Any, tables: set[str], results_dir: Path,
@@ -486,14 +430,6 @@ def build_drive_context(
         if urgency_pct is not None and not math.isfinite(urgency_pct):
             urgency_pct = None
 
-        rul = row.get("lstm_rul_pred")
-        if rul is None or pd.isna(rul):
-            rul = _query_rul(con, results_dir, str(serial_number), as_of, tables)
-        else:
-            rul = float(rul)
-        if rul is not None and not math.isfinite(float(rul)):
-            rul = None
-
         model = row.get("drive_model")
         if not model or str(model) in {"None", "nan"}:
             model = _query_model(con, tables, results_dir, str(serial_number), as_of)
@@ -550,12 +486,6 @@ def build_drive_context(
                 "standard monitoring until the cause is confirmed."
             )
 
-    rul_metrics_path = results_dir / "lstm_metrics.csv"
-    rul_mae = (
-        _load_rul_mae(str(rul_metrics_path), rul_metrics_path.stat().st_mtime_ns)
-        if rul_metrics_path.exists()
-        else None
-    )
     cutoffs_path = results_dir / "tier_cutoffs.json"
     config_path = results_dir.parent / "models" / "hybrid_config.json"
     cutoffs = (
@@ -572,24 +502,7 @@ def build_drive_context(
         horizon_days = float(config.get("horizon_days", 14.0))
     except (TypeError, ValueError):
         horizon_days = 14.0
-    rul_is_decision_grade = bool(
-        rul is not None and float(rul) >= 0 and rul_mae is not None and rul_mae <= horizon_days
-    )
-    strategy = str(config.get("chosen_strategy") or "hybrid")
-    try:
-        meta_coefficients = config.get("meta_coef") or []
-        meta_coef_lgbm = float(meta_coefficients[0]) if len(meta_coefficients) > 0 else None
-        meta_coef_rul = float(meta_coefficients[1]) if len(meta_coefficients) > 1 else None
-        rul_score_sign_inverted = bool(meta_coef_rul is not None and meta_coef_rul > 0)
-    except (TypeError, ValueError, IndexError):
-        meta_coef_lgbm = None
-        meta_coef_rul = None
-        rul_score_sign_inverted = False
-    rul_coef_relative = (
-        abs(meta_coef_rul) / abs(meta_coef_lgbm)
-        if meta_coef_lgbm not in (None, 0) and meta_coef_rul is not None
-        else None
-    )
+    strategy = str(config.get("chosen_strategy") or "lgbm_only")
 
     prediction = {
         "risk_score": risk_score,
@@ -599,32 +512,16 @@ def build_drive_context(
             "share of the fleet the P-A survival model expects to outlive this "
             "drive (test C-index 0.75); a ranking, not a day count"
         ),
-        # The LSTM day estimate is retained for audit only; the dashboard and
-        # the agent payload use fleet_urgency_pct instead (Amendment 03, D-03).
-        "estimated_rul_days": None if rul is None else float(rul),
-        "rul_mae_days": rul_mae,
-        "rul_is_decision_grade": rul_is_decision_grade,
-        # Legacy name retained for compatibility; the value only means the
-        # raw-RUL coefficient is positive, not that the physics is inverted.
-        "rul_score_sign_inverted": rul_score_sign_inverted,
-        "rul_coef_positive": rul_score_sign_inverted,
-        "meta_coef_lgbm": meta_coef_lgbm,
-        "meta_coef_rul": meta_coef_rul,
-        "rul_coef_relative": rul_coef_relative,
         "decision_horizon_days": horizon_days,
         "tier_cutoffs": {
             "high": cutoffs.get("high_cutoff"),
             "medium": cutoffs.get("medium_cutoff"),
         },
         "score_semantics": (
-            "LightGBM failure score on a 0-1 scale; the RUL fusion layer did "
-            "not beat LightGBM alone on held-out validation, so it is not "
-            "part of this score"
-            if strategy == "lgbm_only"
-            else f"{strategy} hybrid score on a 0-1 scale"
+            "LightGBM failure score on a 0-1 scale; a ranking score, not a "
+            "calibrated failure probability"
         ),
         "tier_from_model": strategy,
-        "fusion_shipped": strategy != "lgbm_only",
         "shap_explains_model": "lightgbm",
         "as_of": as_of,
         "observation_age_days": observation_age_days,
@@ -648,7 +545,6 @@ def build_drive_context(
         # Backwards-compatible aliases.
         "risk_tier": risk_tier,
         "hybrid_score": risk_score,
-        "rul_days": prediction["estimated_rul_days"],
         "date": as_of,
     }
 
@@ -664,12 +560,11 @@ def _prediction_message(context: dict[str, Any]) -> str:
         "serial_number": context.get("serial_number"),
         "drive_model": context.get("drive_model", "UNKNOWN"),
         "risk_tier": prediction.get("risk_tier", context.get("risk_tier")),
-        "hybrid_score": prediction.get("risk_score", context.get("hybrid_score")),
+        "risk_score": prediction.get("risk_score", context.get("hybrid_score")),
         "score_semantics": prediction.get(
-            "score_semantics", "hybrid score; not a calibrated failure probability"
+            "score_semantics", "LightGBM score; not a calibrated failure probability"
         ),
         "calibrated_tier_cutoffs": prediction.get("tier_cutoffs", {}),
-        "fusion_shipped": prediction.get("fusion_shipped", True),
         "fleet_urgency_pct": prediction.get("fleet_urgency_pct"),
         "urgency_semantics": prediction.get("urgency_semantics"),
         "as_of": prediction.get("as_of", context.get("date")),

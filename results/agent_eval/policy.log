@@ -1,11 +1,11 @@
 [POLICY] 34,794 drives: 6,282 HIGH, 26,512 MEDIUM, 2,000 LOW sample
 [POLICY] 5,000/34,794  119s
-[POLICY] 10,000/34,794  235s
-[POLICY] 15,000/34,794  351s
-[POLICY] 20,000/34,794  466s
-[POLICY] 25,000/34,794  580s
-[POLICY] 30,000/34,794  694s
-[POLICY] done in 803s; 0 drives with a failed invariant
+[POLICY] 10,000/34,794  236s
+[POLICY] 15,000/34,794  352s
+[POLICY] 20,000/34,794  468s
+[POLICY] 25,000/34,794  586s
+[POLICY] 30,000/34,794  704s
+[POLICY] done in 817s; 0 drives with a failed invariant
                               check      kind  applicable  passed  failed  pass_rate
                prediction_unchanged invariant       34794   34794       0        1.0
                  low_gets_no_action invariant        2000    2000       0        1.0
