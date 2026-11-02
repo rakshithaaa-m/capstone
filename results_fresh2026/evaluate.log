@@ -1,0 +1,45 @@
+[EVAL] {'window': '2026-01-01..2026-06-16', 'rows': 57594607, 'positives': 27639, 'drives': 363405, 'prevalence': 0.00047988868124406163, 'auprc': 0.06081430128399503, 'roc_auc': 0.869708228699579, 'lift': 126.72585051670788, 'precision_at_thr': 0.022398407721432593, 'recall_at_thr': 0.6376135171315894}
+[BOOT] 100/1000 (3.0 min)
+[BOOT] 200/1000 (6.0 min)
+[BOOT] 300/1000 (9.0 min)
+[BOOT] 400/1000 (12.0 min)
+[BOOT] 500/1000 (14.9 min)
+[BOOT] 600/1000 (17.9 min)
+[BOOT] 700/1000 (20.8 min)
+[BOOT] 800/1000 (23.8 min)
+[BOOT] 900/1000 (26.8 min)
+[BOOT] 1000/1000 (29.7 min)
+{
+  "window": "2026-01-01..2026-06-16",
+  "rows": 57594607,
+  "positives": 27639,
+  "drives": 363405,
+  "prevalence": 0.00047988868124406163,
+  "auprc": 0.06081430128399503,
+  "roc_auc": 0.869708228699579,
+  "lift": 126.72585051670788,
+  "precision_at_thr": 0.022398407721432593,
+  "recall_at_thr": 0.6376135171315894,
+  "auprc_ci_lo": 0.055081104324146396,
+  "auprc_ci_hi": 0.06734398492411181,
+  "n_boot": 1000,
+  "drive_auprc": 0.4224793792305182,
+  "drive_roc_auc": 0.8939738678403677,
+  "failing_drives": 2451
+}
+       tier  drives  failing_caught  share_of_failing  precision
+       HIGH    4789            1628          0.664219   0.339946
+     MEDIUM   33376             375          0.152999   0.011236
+HIGH+MEDIUM   38165            2003          0.817217   0.052483
+        LOW  325240             448          0.182783   0.001377
+ days_before  failing_drives  observed  flagged  share_of_all  share_of_observed
+          30            2451      1882     1035      0.422277           0.549947
+          14            2451      2026     1247      0.508772           0.615499
+           7            2451      2068     1311      0.534884           0.633946
+           1            2451      2170     1450      0.591595           0.668203
+            size    sum  share_of_positive_rows
+tier                                           
+HIGH      457266  15696                0.567893
+LOW     52678568   6587                0.238323
+MEDIUM   4458773   5356                0.193784
+exit 0

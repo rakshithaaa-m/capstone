@@ -1,0 +1,27 @@
+  month     rows  positives    auprc       lift
+2026-01 10463270       4000 0.037338  97.668688
+2026-02  9483733       3978 0.064493 153.753309
+2026-03 10650481       4776 0.047744 106.468317
+2026-04 10430946       7329 0.102627 146.062773
+2026-05 10899825       5416 0.059249 119.240006
+2026-06  5666352       2140 0.038247 101.270798
+                               high_drives  failing  precision  fleet_drives
+model                in_train                                               
+HGST HUH721212ALE604 True              537      145   0.270019         13283
+HGST HUH721212ALN604 True              529      210   0.396975          9790
+ST12000NM0008        True              441      221   0.501134         18652
+WDC WUH721816ALE6L4  True              434       59   0.135945         26349
+ST8000NM0055         True              406      119   0.293103         13241
+TOSHIBA MG07ACA14TA  True              378      202   0.534392         37265
+TOSHIBA MG08ACA16TA  True              357       97   0.271709         40036
+ST16000NM001G        True              236       82   0.347458         35090
+ST14000NM001G        True              194       52   0.268041         10520
+ST12000NM001G        True              167       52   0.311377         13216
+ST8000DM002          True              150       45   0.300000          8912
+WDC WUH722222ALE6L4  True              128       71   0.554688         45703
+TOSHIBA MG10ACA20TE  True              114       52   0.456140         25306
+WDC WUH721816ALE6L0  True              106       23   0.216981          2994
+ST14000NM0138        True               91       37   0.406593          1251
+[MODEL] in_train=False: 27,688 drives, 192 failing, 93 HIGH, HIGH precision 0.323
+[MODEL] in_train=True: 335,717 drives, 2259 failing, 4,696 HIGH, HIGH precision 0.340
+exit 0

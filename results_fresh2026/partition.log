@@ -1,0 +1,2 @@
+[PARTITION] [('2025_Q4', 30941708, 945), ('2026_Q1', 30597484, 1030), ('2026_Q2', 31968003, 1522)]  (15.8 min) -> data\processed\fresh2026\partitions
+exit 0
