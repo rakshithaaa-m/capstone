@@ -1,0 +1,91 @@
+[SCORE] part_00.parquet (1.7 min)
+[SCORE] part_01.parquet (2.8 min)
+[SCORE] part_02.parquet (3.9 min)
+[SCORE] part_03.parquet (5.1 min)
+[SCORE] part_04.parquet (6.2 min)
+[SCORE] part_05.parquet (7.3 min)
+[SCORE] part_06.parquet (8.4 min)
+[SCORE] part_07.parquet (9.6 min)
+[SCORE] part_08.parquet (10.7 min)
+[SCORE] part_09.parquet (11.8 min)
+[SCORE] part_10.parquet (12.9 min)
+[SCORE] part_11.parquet (14.1 min)
+[SCORE] part_12.parquet (15.2 min)
+[SCORE] part_13.parquet (16.3 min)
+[SCORE] part_14.parquet (17.5 min)
+[SCORE] part_15.parquet (18.6 min)
+[SCORE] part_16.parquet (19.7 min)
+[SCORE] part_17.parquet (20.9 min)
+[SCORE] part_18.parquet (22.0 min)
+[SCORE] part_19.parquet (23.1 min)
+[SCORE] part_20.parquet (24.3 min)
+[SCORE] part_21.parquet (25.4 min)
+[SCORE] part_22.parquet (26.6 min)
+[SCORE] part_23.parquet (27.7 min)
+[SCORE] part_24.parquet (28.8 min)
+[SCORE] part_25.parquet (30.0 min)
+[SCORE] part_26.parquet (31.1 min)
+[SCORE] part_27.parquet (32.3 min)
+[SCORE] part_28.parquet (33.5 min)
+[SCORE] part_29.parquet (34.6 min)
+[SCORE] part_30.parquet (35.7 min)
+[SCORE] part_31.parquet (36.9 min)
+[SCORE] part_32.parquet (38.1 min)
+[SCORE] part_33.parquet (39.2 min)
+[SCORE] part_34.parquet (40.5 min)
+[SCORE] part_35.parquet (41.6 min)
+[SCORE] part_36.parquet (42.8 min)
+[SCORE] part_37.parquet (43.9 min)
+[SCORE] part_38.parquet (45.1 min)
+[SCORE] part_39.parquet (46.2 min)
+[SCORE] part_40.parquet (47.4 min)
+[SCORE] part_41.parquet (48.5 min)
+[SCORE] part_42.parquet (49.6 min)
+[SCORE] part_43.parquet (50.8 min)
+[SCORE] part_44.parquet (51.9 min)
+[SCORE] part_45.parquet (53.0 min)
+[SCORE] part_46.parquet (54.2 min)
+[SCORE] part_47.parquet (55.3 min)
+[SCORE] part_48.parquet (56.4 min)
+[SCORE] part_49.parquet (57.6 min)
+[SCORE] part_50.parquet (58.7 min)
+[SCORE] part_51.parquet (59.9 min)
+[SCORE] part_52.parquet (61.0 min)
+[SCORE] part_53.parquet (62.2 min)
+[SCORE] part_54.parquet (63.4 min)
+[SCORE] part_55.parquet (64.5 min)
+[SCORE] part_56.parquet (65.7 min)
+[SCORE] part_57.parquet (66.9 min)
+[SCORE] part_58.parquet (68.0 min)
+[SCORE] part_59.parquet (69.2 min)
+[SCORE] 62,565,487 rows, 363,548 drives, latest 2026-06-30 -> results_deploy2026
+[METRICS] 2026 to 2026-06-16: AUPRC 0.0779, ROC 0.886, P/R at 0.73 0.036/0.574, HIGH capture 0.579
+[URGENCY] 363,548 drives; p10/p50/p90 20.7/63.2/92.1
+[AT-RISK SAMPLE] Computing SHAP for 62,743 currently at-risk (HIGH/MEDIUM) drives -- this is what Stage 12's mitigation mapping should be pointed at for full coverage.
+D:\capstone\.venv\Lib\site-packages\shap\explainers\_tree.py:632: UserWarning: LightGBM binary classifier with TreeExplainer shap values output has changed to a list of ndarray
+  warnings.warn(
+[EXPLAIN] SHAP for 62,743 at-risk drives; top: error_total, smart_5_raw, smart_5_raw_roll30_std, smart_4_raw, smart_241_raw
+[MAPPING] 62743 Medium/High risk rows to map (from 62,743 rows with a date-matched SHAP explanation; input contained 62,743 rows -- use shap_values_at_risk.parquet for full at-risk coverage)
+
+[EXAMPLE] first mapped drive:
+{
+  "serial_number": "02308a3415be0010",
+  "date": "2026-06-30",
+  "risk_tier": "MEDIUM",
+  "top_driver_feature": "smart_1_normalized",
+  "top_driver_direction": "increased risk",
+  "top_driver_shap_value": 0.46650621881322335,
+  "root_cause": "Elevated risk driven by a SMART attribute outside the standard mapping table.",
+  "recommended_action": "Review the drive's individual SHAP explanation and escalate to standard monitoring rotation."
+}
+
+[SAVE] results_deploy2026\mitigation_mapping.json (62743 records)
+[BUILD] dashboard database: D:\capstone\results_deploy2026\dashboard.duckdb
+[BUILD] reading risk_tiers_test.csv directly for compact build
+[BUILD] reading hybrid_test_scores.csv directly for compact build
+[BUILD] scanning model metadata from drive_meta.parquet ...
+[BUILD] built drive_models: 0.9s
+[BUILD] built drive_status: 39.2s
+[BUILD] indexed drive_status: 0.0s
+[BUILD] built mitigation table: 1.0s
+[BUILD] serving tables are ready

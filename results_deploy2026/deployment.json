@@ -1,0 +1,22 @@
+{
+  "model": "LightGBM 5-seed ensemble, retrained (models_retrain2026/A)",
+  "train_window": [
+    "2013-04-10",
+    "2025-06-16"
+  ],
+  "threshold": 0.73,
+  "tier_cutoffs": {
+    "high_cutoff": 0.7211253046989441,
+    "medium_cutoff": 0.03253363445401192
+  },
+  "scored_window": [
+    "2026-01-01",
+    "2026-06-30"
+  ],
+  "metrics_window": [
+    "2026-01-01",
+    "2026-06-16"
+  ],
+  "decision": "results_retrain2026\\results.json",
+  "replaces": "models/ (frozen, trained to 2024-03-31)"
+}

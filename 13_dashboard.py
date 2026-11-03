@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import html
 import importlib.util
+import json
 import os
 import sys
 from pathlib import Path
@@ -207,7 +208,9 @@ def parse_args() -> argparse.Namespace:
     else:
         argv = []
     parser = argparse.ArgumentParser(description="Predictive HDD maintenance dashboard")
-    parser.add_argument("--results_dir", type=str, default="results")
+    # results_deploy2026: the retrained model on 2026 data (31_deploy_2026.py);
+    # results: the frozen model on the 2024-25 test period (paper evaluation)
+    parser.add_argument("--results_dir", type=str, default="results_deploy2026")
     return parser.parse_args(argv)
 
 
@@ -229,7 +232,9 @@ def _source_signature(results: Path) -> str:
         results / "tier_cutoffs.json",
         results.parent / "models" / "hybrid_config.json",
         # Must match build_dashboard_db.py's signature order exactly.
-        results.parent / "results_fusion" / "pa_urgency_test.csv",
+        results / "pa_urgency_test.csv"
+        if (results / "pa_urgency_test.csv").exists()
+        else results.parent / "results_fusion" / "pa_urgency_test.csv",
     ]
     parts: list[str] = []
     for path in paths:
@@ -763,6 +768,15 @@ def render_prediction(context: dict[str, Any], compact: bool = False) -> None:
         )
 
 
+def model_description(results_dir: str) -> str:
+    """Name the scoring model; a deployment dir records it in deployment.json."""
+    path = Path(results_dir) / "deployment.json"
+    if not path.exists():
+        return "LightGBM (5-seed ensemble)"
+    info = json.loads(path.read_text())
+    return f"{info['model']}, trained to {info['train_window'][1]}, scoring {' to '.join(info['scored_window'])}"
+
+
 def render_overview(
     results_dir: str,
     overview: dict[str, int],
@@ -852,7 +866,7 @@ def render_overview(
                 )
                 metric_card("HIGH-tier capture", f"{recall:.1%}", "held-out test")
         st.caption(
-            "Predictor: LightGBM (5-seed ensemble). More complex combinations "
+            f"Predictor: {model_description(results_dir)}. More complex combinations "
             "were evaluated and did not beat it (archive/fusion_study/)."
         )
         if not tier_accuracy.empty and "cumulative_share_captured" in tier_accuracy:

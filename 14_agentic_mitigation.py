@@ -942,7 +942,8 @@ def run_agent(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial_number", type=str, required=True)
-    parser.add_argument("--results_dir", type=str, default="results")
+    # the deployed (retrained) model on 2026; pass --results_dir results for the 2024-25 test period
+    parser.add_argument("--results_dir", type=str, default="results_deploy2026")
     parser.add_argument(
         "--dry_run",
         action="store_true",

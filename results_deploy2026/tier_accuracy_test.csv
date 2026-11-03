@@ -1,0 +1,4 @@
+tier,total_drives,true_failures_in_tier_alone,share_of_failures_in_tier_alone,cumulative_failures_captured,cumulative_share_captured
+HIGH,458780,15995,0.5787112413618438,15995,0.5787112413618438
+MEDIUM,8702343,5999,0.2170483736748797,21994,0.7957596150367234
+LOW,48433484,5645,0.20424038496327654,27639,1.0

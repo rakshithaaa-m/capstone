@@ -75,3 +75,15 @@ snapshot_*/
 # Agent evaluation: per-drive check table (3 MB), regenerable by 25_agent_eval.py policy
 results/agent_eval/policy_checks.csv
 results/agent_eval/policy_runs.jsonl
+
+# --- Deployment of the retrained model (31_deploy_2026.py) -------------------
+# Per-row 2026 scores, SHAP matrix, mapping and serving DB are GB-scale and
+# rebuildable with `python 31_deploy_2026.py all`; the small metrics, cutoffs,
+# and deployment.json are tracked.
+results_deploy2026/_work/
+results_deploy2026/*.duckdb
+results_deploy2026/risk_tiers_test.csv
+results_deploy2026/hybrid_test_scores.csv
+results_deploy2026/shap_values_at_risk.parquet
+results_deploy2026/mitigation_mapping.json
+results_deploy2026/pa_urgency_test.csv

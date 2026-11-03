@@ -1,0 +1,2 @@
+chosen_strategy,test_auprc,test_roc_auc,val_auprc_used_for_selection,val_select_auprc_lgbm_only
+lgbm_only,0.07789260655529487,0.8863312561273712,0.08419063783562288,0.08419063783562288
