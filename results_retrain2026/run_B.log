@@ -1,0 +1,348 @@
+=== fleet_prep ===
+[FLEET] population written in 19.7 min -> data\processed\retrain2026\fleet_population
+=== fleet_pct ===
+[FLEET] 12/159 months (0.7 min)
+[FLEET] 24/159 months (1.7 min)
+[FLEET] 36/159 months (3.0 min)
+[FLEET] 48/159 months (4.4 min)
+[FLEET] 60/159 months (6.2 min)
+[FLEET] 72/159 months (8.2 min)
+[FLEET] 84/159 months (10.4 min)
+[FLEET] 96/159 months (13.1 min)
+[FLEET] 108/159 months (16.3 min)
+[FLEET] 120/159 months (19.9 min)
+[FLEET] 132/159 months (23.9 min)
+[FLEET] 144/159 months (27.3 min)
+[FLEET] 156/159 months (31.0 min)
+[FLEET] percentiles for 159 months -> data\processed\retrain2026\fleet_pct
+=== build_b ===
+[B] train_resampled_B.parquet: 4,271,396 rows, 99.5% with smart_1_raw_model_pct (4.1 min)
+Traceback (most recent call last):
+  File "D:\capstone\29_retrain_2026.py", line 437, in <module>
+    main()
+  File "D:\capstone\29_retrain_2026.py", line 431, in main
+    {"resample": resample, "train": lambda: train(args.arm),
+  File "D:\capstone\29_retrain_2026.py", line 301, in build_b_inputs
+    con.execute(f"""
+_duckdb.OutOfMemoryException: Out of Memory Error: failed to pin block of size 256.0 KiB (5.5 GiB/5.5 GiB used)
+
+Possible solutions:
+* Reducing the number of threads (SET threads=X)
+* Disabling insertion-order preservation (SET preserve_insertion_order=false)
+* Increasing the memory limit (SET memory_limit='...GB')
+
+See also https://duckdb.org/docs/stable/guides/performance/how_to_tune_workloads
+FAILED at build_b
+=== build_b ===
+[B] features_val_B: 56,039,738 rows, 99.7% with smart_1_raw_model_pct (46.3 min)
+[B] features_test_B: 57,594,607 rows, 99.7% with smart_1_raw_model_pct (36.6 min)
+=== train --arm B ===
+[TRAIN B] 4,271,396 rows, 388,417 positives, 222 features
+[TRAIN B] seed 42 fitted in 1.5 min
+[TRAIN B] seed 7 fitted in 1.4 min
+[TRAIN B] seed 13 fitted in 1.4 min
+[TRAIN B] seed 99 fitted in 1.4 min
+[TRAIN B] seed 23 fitted in 1.4 min
+=== predict --arm B ===
+[PREDICT B] val (59.8 min) -> data\processed\retrain2026\preds_val_B.parquet
+[PREDICT B] test (61.2 min) -> data\processed\retrain2026\preds_test_B.parquet
+=== decide --boot 1000 ===
+[VAL] 56,039,738 rows, 25,541 positives
+[BOOT] sorting 2 x 56,039,738 rows by score ...
+[BOOT] 25/1000  (3.60s/rep, eta 58.5 min)
+[BOOT] 50/1000  (3.62s/rep, eta 57.4 min)
+[BOOT] 75/1000  (3.62s/rep, eta 55.8 min)
+[BOOT] 100/1000  (3.62s/rep, eta 54.3 min)
+[BOOT] 125/1000  (3.62s/rep, eta 52.7 min)
+[BOOT] 150/1000  (3.61s/rep, eta 51.2 min)
+[BOOT] 175/1000  (3.61s/rep, eta 49.7 min)
+[BOOT] 200/1000  (3.61s/rep, eta 48.1 min)
+[BOOT] 225/1000  (3.61s/rep, eta 46.7 min)
+[BOOT] 250/1000  (3.61s/rep, eta 45.1 min)
+[BOOT] 275/1000  (3.61s/rep, eta 43.6 min)
+[BOOT] 300/1000  (3.61s/rep, eta 42.1 min)
+[BOOT] 325/1000  (3.61s/rep, eta 40.6 min)
+[BOOT] 350/1000  (3.61s/rep, eta 39.2 min)
+[BOOT] 375/1000  (3.61s/rep, eta 37.6 min)
+[BOOT] 400/1000  (3.62s/rep, eta 36.2 min)
+[BOOT] 425/1000  (3.61s/rep, eta 34.6 min)
+[BOOT] 450/1000  (3.62s/rep, eta 33.1 min)
+[BOOT] 475/1000  (3.61s/rep, eta 31.6 min)
+[BOOT] 500/1000  (3.61s/rep, eta 30.1 min)
+[BOOT] 525/1000  (3.61s/rep, eta 28.6 min)
+[BOOT] 550/1000  (3.61s/rep, eta 27.1 min)
+[BOOT] 575/1000  (3.61s/rep, eta 25.6 min)
+[BOOT] 600/1000  (3.61s/rep, eta 24.1 min)
+[BOOT] 625/1000  (3.61s/rep, eta 22.6 min)
+[BOOT] 650/1000  (3.61s/rep, eta 21.1 min)
+[BOOT] 675/1000  (3.61s/rep, eta 19.6 min)
+[BOOT] 700/1000  (3.61s/rep, eta 18.1 min)
+[BOOT] 725/1000  (3.61s/rep, eta 16.6 min)
+[BOOT] 750/1000  (3.61s/rep, eta 15.1 min)
+[BOOT] 775/1000  (3.61s/rep, eta 13.5 min)
+[BOOT] 800/1000  (3.61s/rep, eta 12.0 min)
+[BOOT] 825/1000  (3.61s/rep, eta 10.5 min)
+[BOOT] 850/1000  (3.61s/rep, eta 9.0 min)
+[BOOT] 875/1000  (3.61s/rep, eta 7.5 min)
+[BOOT] 900/1000  (3.61s/rep, eta 6.0 min)
+[BOOT] 925/1000  (3.61s/rep, eta 4.5 min)
+[BOOT] 950/1000  (3.61s/rep, eta 3.0 min)
+[BOOT] 975/1000  (3.61s/rep, eta 1.5 min)
+[BOOT] 1000/1000  (3.61s/rep, eta 0.0 min)
+[DECISION 1] B vs A on validation: {'auprc_p_B': 0.08637798389806606, 'auprc_p_A': 0.08419063783562288, 'delta': 0.0021873460624431823, 'ci_lo': 0.0005492278544018434, 'ci_hi': 0.00410886925888643, 'n_boot': 1000} -> R = A
+[TEST] 57,594,607 rows, 27,639 positives
+[BOOT] sorting 2 x 57,594,607 rows by score ...
+[BOOT] 25/1000  (3.56s/rep, eta 57.9 min)
+[BOOT] 50/1000  (3.56s/rep, eta 56.3 min)
+[BOOT] 75/1000  (3.57s/rep, eta 55.0 min)
+[BOOT] 100/1000  (3.57s/rep, eta 53.5 min)
+[BOOT] 125/1000  (3.57s/rep, eta 52.1 min)
+[BOOT] 150/1000  (3.57s/rep, eta 50.6 min)
+[BOOT] 175/1000  (3.57s/rep, eta 49.0 min)
+[BOOT] 200/1000  (3.57s/rep, eta 47.6 min)
+[BOOT] 225/1000  (3.57s/rep, eta 46.1 min)
+[BOOT] 250/1000  (3.57s/rep, eta 44.6 min)
+[BOOT] 275/1000  (3.56s/rep, eta 43.1 min)
+[BOOT] 300/1000  (3.56s/rep, eta 41.6 min)
+[BOOT] 325/1000  (3.56s/rep, eta 40.1 min)
+[BOOT] 350/1000  (3.56s/rep, eta 38.6 min)
+[BOOT] 375/1000  (3.56s/rep, eta 37.1 min)
+[BOOT] 400/1000  (3.56s/rep, eta 35.6 min)
+[BOOT] 425/1000  (3.56s/rep, eta 34.1 min)
+[BOOT] 450/1000  (3.56s/rep, eta 32.7 min)
+[BOOT] 475/1000  (3.56s/rep, eta 31.2 min)
+[BOOT] 500/1000  (3.57s/rep, eta 29.7 min)
+[BOOT] 525/1000  (3.56s/rep, eta 28.2 min)
+[BOOT] 550/1000  (3.57s/rep, eta 26.7 min)
+[BOOT] 575/1000  (3.57s/rep, eta 25.3 min)
+[BOOT] 600/1000  (3.57s/rep, eta 23.8 min)
+[BOOT] 625/1000  (3.57s/rep, eta 22.3 min)
+[BOOT] 650/1000  (3.57s/rep, eta 20.8 min)
+[BOOT] 675/1000  (3.57s/rep, eta 19.3 min)
+[BOOT] 700/1000  (3.57s/rep, eta 17.8 min)
+[BOOT] 725/1000  (3.57s/rep, eta 16.4 min)
+[BOOT] 750/1000  (3.57s/rep, eta 14.9 min)
+[BOOT] 775/1000  (3.57s/rep, eta 13.4 min)
+[BOOT] 800/1000  (3.57s/rep, eta 11.9 min)
+[BOOT] 825/1000  (3.57s/rep, eta 10.4 min)
+=== decide --boot 1000 (rerun) ===
+[VAL] 56,039,738 rows, 25,541 positives
+[BOOT] sorting 2 x 56,039,738 rows by score ...
+[BOOT] 25/1000  (3.74s/rep, eta 60.7 min)
+[BOOT] 50/1000  (3.69s/rep, eta 58.5 min)
+[BOOT] 75/1000  (3.72s/rep, eta 57.4 min)
+[BOOT] 100/1000  (3.71s/rep, eta 55.6 min)
+[BOOT] 125/1000  (3.69s/rep, eta 53.9 min)
+[BOOT] 150/1000  (3.69s/rep, eta 52.3 min)
+[BOOT] 175/1000  (3.68s/rep, eta 50.7 min)
+[BOOT] 200/1000  (3.68s/rep, eta 49.1 min)
+[BOOT] 225/1000  (3.68s/rep, eta 47.5 min)
+[BOOT] 250/1000  (3.68s/rep, eta 46.0 min)
+[BOOT] 275/1000  (3.67s/rep, eta 44.4 min)
+[BOOT] 300/1000  (3.67s/rep, eta 42.9 min)
+[BOOT] 325/1000  (3.70s/rep, eta 41.7 min)
+[BOOT] 350/1000  (3.74s/rep, eta 40.5 min)
+[BOOT] 375/1000  (3.91s/rep, eta 40.7 min)
+[BOOT] 400/1000  (4.24s/rep, eta 42.4 min)
+[BOOT] 425/1000  (4.50s/rep, eta 43.1 min)
+[BOOT] 450/1000  (4.74s/rep, eta 43.4 min)
+[BOOT] 475/1000  (4.93s/rep, eta 43.1 min)
+[BOOT] 500/1000  (5.13s/rep, eta 42.8 min)
+[BOOT] 525/1000  (5.32s/rep, eta 42.1 min)
+[BOOT] 550/1000  (5.54s/rep, eta 41.5 min)
+[BOOT] 575/1000  (5.73s/rep, eta 40.6 min)
+[BOOT] 600/1000  (5.87s/rep, eta 39.1 min)
+[BOOT] 625/1000  (6.01s/rep, eta 37.6 min)
+[BOOT] 650/1000  (6.12s/rep, eta 35.7 min)
+[BOOT] 675/1000  (6.14s/rep, eta 33.3 min)
+[BOOT] 700/1000  (6.05s/rep, eta 30.3 min)
+[BOOT] 725/1000  (5.97s/rep, eta 27.4 min)
+[BOOT] 750/1000  (5.90s/rep, eta 24.6 min)
+[BOOT] 775/1000  (5.82s/rep, eta 21.8 min)
+[BOOT] 800/1000  (5.76s/rep, eta 19.2 min)
+[BOOT] 825/1000  (5.69s/rep, eta 16.6 min)
+[BOOT] 850/1000  (5.63s/rep, eta 14.1 min)
+[BOOT] 875/1000  (5.58s/rep, eta 11.6 min)
+[BOOT] 900/1000  (5.52s/rep, eta 9.2 min)
+[BOOT] 925/1000  (5.47s/rep, eta 6.8 min)
+[BOOT] 950/1000  (5.43s/rep, eta 4.5 min)
+[BOOT] 975/1000  (5.38s/rep, eta 2.2 min)
+[BOOT] 1000/1000  (5.34s/rep, eta 0.0 min)
+[DECISION 1] B vs A on validation: {'auprc_p_B': 0.08637798389806606, 'auprc_p_A': 0.08419063783562288, 'delta': 0.0021873460624431823, 'ci_lo': 0.0005492278544018434, 'ci_hi': 0.00410886925888643, 'n_boot': 1000} -> R = A
+[TEST] 57,594,607 rows, 27,639 positives
+[BOOT] sorting 2 x 57,594,607 rows by score ...
+[BOOT] 25/1000  (3.71s/rep, eta 60.4 min)
+[BOOT] 50/1000  (3.67s/rep, eta 58.2 min)
+[BOOT] 75/1000  (3.68s/rep, eta 56.8 min)
+[BOOT] 100/1000  (3.69s/rep, eta 55.3 min)
+[BOOT] 125/1000  (3.69s/rep, eta 53.7 min)
+[BOOT] 150/1000  (3.70s/rep, eta 52.4 min)
+[BOOT] 175/1000  (3.71s/rep, eta 50.9 min)
+[BOOT] 200/1000  (3.70s/rep, eta 49.3 min)
+[BOOT] 225/1000  (3.70s/rep, eta 47.8 min)
+[BOOT] 250/1000  (3.81s/rep, eta 47.6 min)
+[BOOT] 275/1000  (4.02s/rep, eta 48.5 min)
+[BOOT] 300/1000  (3.98s/rep, eta 46.5 min)
+[BOOT] 325/1000  (3.96s/rep, eta 44.5 min)
+[BOOT] 350/1000  (3.93s/rep, eta 42.6 min)
+[BOOT] 375/1000  (3.91s/rep, eta 40.8 min)
+[BOOT] 400/1000  (3.90s/rep, eta 39.0 min)
+[BOOT] 425/1000  (3.88s/rep, eta 37.2 min)
+[BOOT] 450/1000  (3.87s/rep, eta 35.4 min)
+[BOOT] 475/1000  (3.85s/rep, eta 33.7 min)
+[BOOT] 500/1000  (3.84s/rep, eta 32.0 min)
+[BOOT] 525/1000  (3.83s/rep, eta 30.3 min)
+[BOOT] 550/1000  (3.82s/rep, eta 28.7 min)
+[BOOT] 575/1000  (3.81s/rep, eta 27.0 min)
+[BOOT] 600/1000  (3.80s/rep, eta 25.4 min)
+[BOOT] 625/1000  (3.80s/rep, eta 23.7 min)
+[BOOT] 650/1000  (3.79s/rep, eta 22.1 min)
+[BOOT] 675/1000  (3.78s/rep, eta 20.5 min)
+[BOOT] 700/1000  (3.78s/rep, eta 18.9 min)
+[BOOT] 725/1000  (3.77s/rep, eta 17.3 min)
+[BOOT] 750/1000  (3.77s/rep, eta 15.7 min)
+[BOOT] 775/1000  (3.76s/rep, eta 14.1 min)
+[BOOT] 800/1000  (3.76s/rep, eta 12.5 min)
+[BOOT] 825/1000  (3.75s/rep, eta 10.9 min)
+[BOOT] 850/1000  (3.75s/rep, eta 9.4 min)
+[BOOT] 875/1000  (3.74s/rep, eta 7.8 min)
+[BOOT] 900/1000  (3.74s/rep, eta 6.2 min)
+[BOOT] 925/1000  (3.74s/rep, eta 4.7 min)
+[BOOT] 950/1000  (3.73s/rep, eta 3.1 min)
+[BOOT] 975/1000  (3.73s/rep, eta 1.6 min)
+[BOOT] 1000/1000  (3.73s/rep, eta 0.0 min)
+[DECISION 2] A vs F on test: {'auprc_p_A': 0.07789260655529487, 'auprc_p_F': 0.06081430128399503, 'delta': 0.01707830527129984, 'ci_lo': 0.013189982359515868, 'ci_hi': 0.020858070476910275, 'n_boot': 1000} -> retraining helps
+{
+  "preregistration": "results_retrain2026/PREREGISTRATION.md",
+  "margin": 0.003,
+  "val_B_vs_A": {
+    "auprc_p_B": 0.08637798389806606,
+    "auprc_p_A": 0.08419063783562288,
+    "delta": 0.0021873460624431823,
+    "ci_lo": 0.0005492278544018434,
+    "ci_hi": 0.00410886925888643,
+    "n_boot": 1000
+  },
+  "retrained_candidate": "A",
+  "fitted_on_validation": {
+    "A": {
+      "threshold": 0.73,
+      "cut": {
+        "high_cutoff": 0.7211253046989441,
+        "medium_cutoff": 0.03253363445401192
+      }
+    },
+    "B": {
+      "threshold": 0.75,
+      "cut": {
+        "high_cutoff": 0.70440274477005,
+        "medium_cutoff": 0.03311639279127121
+      }
+    },
+    "F": {
+      "threshold": 0.62,
+      "cut": {
+        "high_cutoff": 0.76406634,
+        "medium_cutoff": 0.06907166
+      }
+    }
+  },
+  "val_auprc": {
+    "F": 0.06630257300146768,
+    "A": 0.08419063783562288,
+    "B": 0.08637798389806606
+  },
+  "test_R_vs_F": {
+    "auprc_p_A": 0.07789260655529487,
+    "auprc_p_F": 0.06081430128399503,
+    "delta": 0.01707830527129984,
+    "ci_lo": 0.013189982359515868,
+    "ci_hi": 0.020858070476910275,
+    "n_boot": 1000
+  },
+  "verdict": "retraining helps",
+  "test_describe": {
+    "F": {
+      "auprc": 0.06081430128399503,
+      "roc_auc": 0.869708228699579,
+      "threshold": 0.62,
+      "high_cutoff": 0.76406634,
+      "medium_cutoff": 0.06907166,
+      "precision_at_thr": 0.022398407721432593,
+      "recall_at_thr": 0.6376135171315894,
+      "high_rows_per_day": 2738.119760479042,
+      "high_row_precision": 0.03432575350015089,
+      "high_share_of_pos_rows": 0.5678931943992185,
+      "monthly_auprc": {
+        "2026-01": 0.037337730165934814,
+        "2026-02": 0.06449260682179676,
+        "2026-03": 0.04774363551828196,
+        "2026-04": 0.10262674743158114,
+        "2026-05": 0.05924901283174644,
+        "2026-06": 0.03824674271780678
+      },
+      "drive_auprc": 0.4224793792305182,
+      "lead_time_share_of_all": {
+        "30": 0.4222766217870257,
+        "14": 0.5087719298245614,
+        "7": 0.5348837209302325,
+        "1": 0.591595267237862
+      }
+    },
+    "A": {
+      "auprc": 0.07789260655529487,
+      "roc_auc": 0.8863312561273712,
+      "threshold": 0.73,
+      "high_cutoff": 0.7211253046989441,
+      "medium_cutoff": 0.03253363445401192,
+      "precision_at_thr": 0.035822923060259235,
+      "recall_at_thr": 0.5743695502731647,
+      "high_rows_per_day": 2747.185628742515,
+      "high_row_precision": 0.03486420506560879,
+      "high_share_of_pos_rows": 0.5787112413618438,
+      "monthly_auprc": {
+        "2026-01": 0.05314185779562978,
+        "2026-02": 0.08679062461966157,
+        "2026-03": 0.05952274509695751,
+        "2026-04": 0.11808878893411184,
+        "2026-05": 0.0806998274919326,
+        "2026-06": 0.05804424923360401
+      },
+      "drive_auprc": 0.45853726187263566,
+      "lead_time_share_of_all": {
+        "30": 0.3459812321501428,
+        "14": 0.441452468380253,
+        "7": 0.47613219094247244,
+        "1": 0.543859649122807
+      }
+    },
+    "B": {
+      "auprc": 0.07836248333899934,
+      "roc_auc": 0.8923966658279083,
+      "threshold": 0.75,
+      "high_cutoff": 0.70440274477005,
+      "medium_cutoff": 0.03311639279127121,
+      "precision_at_thr": 0.04100835234879322,
+      "recall_at_thr": 0.547487246282427,
+      "high_rows_per_day": 2652.694610778443,
+      "high_row_precision": 0.035751693002257334,
+      "high_share_of_pos_rows": 0.5730308621874887,
+      "monthly_auprc": {
+        "2026-01": 0.0540290459826682,
+        "2026-02": 0.08183743680701089,
+        "2026-03": 0.06306636702370491,
+        "2026-04": 0.12080294842356849,
+        "2026-05": 0.07764832211898876,
+        "2026-06": 0.05992636346202722
+      },
+      "drive_auprc": 0.46862782956187304,
+      "lead_time_share_of_all": {
+        "30": 0.3243574051407589,
+        "14": 0.41330069359445126,
+        "7": 0.4532843737250102,
+        "1": 0.518563851489188
+      }
+    }
+  }
+}
+exit 0

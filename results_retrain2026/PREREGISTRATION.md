@@ -66,4 +66,6 @@ test file is not summarised until the B decision is made on validation). Then B 
 built and scored, B is decided on validation, and the confirmatory test is run.
 
 ## Deviations
-(none)
+- 2026-11-02, implementation only: the join that attaches percentiles to the validation
+  and test rows ran out of memory as a single query, so it is now done one month at a
+  time. The rows, features and values are the same. No results had been seen.
