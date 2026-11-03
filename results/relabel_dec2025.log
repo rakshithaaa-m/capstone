@@ -1,0 +1,26 @@
+[KEYS] 602 rows on 96 drives -> data\processed\relabel_dec2025_keys.parquet
+[REWRITE] results\lgbm_test_probs.csv: 144,739,479 rows, positives 67,689 -> 68,291 (6.5 min)
+[REWRITE] results\risk_tiers_test.csv: 144,739,479 rows, positives 67,689 -> 68,291 (7.5 min)
+[REWRITE] data\processed\features_test.parquet: 144,739,479 rows, positives 67,689 -> 68,291 (13.6 min)
+[SKIP] results\lgbm_test_probs.csv: already relabelled (602 key rows positive)
+[SKIP] results\risk_tiers_test.csv: already relabelled (602 key rows positive)
+[SKIP] data\processed\features_test.parquet: already relabelled (602 key rows positive)
+[REWRITE] results\hybrid_test_scores.csv: 144,739,479 rows, positives 67,689 -> 68,291 (13.6 min)
+Traceback (most recent call last):
+  File "D:\capstone\30_relabel_dec2025.py", line 130, in <module>
+    prev = pd.read_csv(old).iloc[0]
+    ^^^^^^
+  File "D:\capstone\30_relabel_dec2025.py", line 126, in main
+    
+  File "D:\capstone\30_relabel_dec2025.py", line 103, in rewrite_cache
+    after = con.execute(f"SELECT count(*), sum(y) FROM '{tmp.as_posix()}'").fetchone()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_duckdb.BinderException: Binder Error: No extension found that is capable of reading the file "results_fusion/_pb_confirm_joined.parquet.tmp"
+* If this file is a supported file format you can explicitly use the reader functions, such as read_csv, read_json or read_parquet
+[SKIP] results\lgbm_test_probs.csv: already relabelled (602 key rows positive)
+[SKIP] results\risk_tiers_test.csv: already relabelled (602 key rows positive)
+[SKIP] data\processed\features_test.parquet: already relabelled (602 key rows positive)
+[SKIP] results\hybrid_test_scores.csv: already relabelled (602 key rows positive)
+[REWRITE] results_fusion\_pb_confirm_joined.parquet: positives 67,689 -> 68,291
+[REWRITE] results_fusion\_pb_confirm_drives.parquet: failing drives 5,254 -> 5,350
+[METRICS] results\lgbm_metrics.csv: AUPRC 0.08394 -> 0.08445, precision 0.0276, recall 0.5983

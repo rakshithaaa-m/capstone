@@ -1,0 +1,11 @@
+[LEAD] 5,350 failing drives
+[LEAD] L=30d  evaluated= 4857  flagged_HIGH= 2287  share=0.4275
+[LEAD] L=14d  evaluated= 5010  flagged_HIGH= 2704  share=0.5054
+[LEAD] L= 7d  evaluated= 5035  flagged_HIGH= 2924  share=0.5465
+[LEAD] L= 1d  evaluated= 5102  flagged_HIGH= 3381  share=0.6320
+[SAVE] results_ablation/leadtime_curve.csv
+ horizon_days  n_drives  n_evaluated  n_flagged_high  share_flagged_high
+           30      5350         4857            2287            0.427477
+           14      5350         5010            2704            0.505421
+            7      5350         5035            2924            0.546542
+            1      5350         5102            3381            0.631963

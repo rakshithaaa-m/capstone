@@ -48,3 +48,10 @@ Recall and lead time held. Ranking quality and precision fell.
    (December AUPRC 0.032). The fix is to relabel those rows using the 2026 failures now
    available, or to end the test window on 2025-12-17; either needs a decision before it
    is applied. The 2026 window already excludes its last 14 days for this reason.
+
+## Update 2026-11-03: test labels completed
+Item 5 was resolved by relabelling (`30_relabel_dec2025.py`): 602 drive-days on 96 drives
+in 2025-12-18..31 became positive. Test AUPRC 0.0839 → 0.0844; December 2025 AUPRC
+0.032 → 0.036 (December genuinely had few failures: 56 positive rows a day against 118
+in November). `monthly_test_vs_2026.csv` now has the corrected December row and the
+retrained model's 2026 months (`period = 2026_retrained`, from `results_retrain2026`).

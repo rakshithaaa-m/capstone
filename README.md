@@ -105,6 +105,9 @@ the training period, and the tier cutoffs are fitted on validation.
 | `25_agent_eval.py` | agent evaluation: policy audit, red team, live harness → `results/agent_eval/` |
 | `26_row_auprc_ci.py` | headline row-level AUPRC CI, full drive bootstrap (B = 1000) → `results/paper_tables/` |
 | `27_prevalence_inflation.py` | same scores under undersampled / healthy-only evaluation protocols (paper Table 3) → `results/paper_tables/` |
+| `28_fresh_2026.py` | out-of-time evaluation of the frozen model on Backblaze 2026 H1 → `results_fresh2026/` |
+| `29_retrain_2026.py` | pre-registered retraining study (retrained and fleet-relative variants vs frozen, tested on 2026) → `results_retrain2026/` |
+| `30_relabel_dec2025.py` | completes test labels for 2025-12-18..31 with January 2026 failures (602 rows); rewrites the test label files and bootstrap cache |
 
 The `fix*.py`, `check_*.py`, `verify_*.py` and `diagnose_*.py` files are
 one-off diagnostics kept for provenance.

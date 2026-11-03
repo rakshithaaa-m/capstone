@@ -1,0 +1,31 @@
+[1/5] loading drive-day test population (144M rows) ...
+      144,739,479 drive-days | 68,291 positives (0.0472%) | 296,960 drive groups | 170s
+[2/5] row-level point estimates (must match lgbm_metrics.csv) ...
+      LightGBM only          AUPRC 0.08445 (179x prevalence)  AUC 0.88808
+      Weighted blend         AUPRC 0.04920 (104x prevalence)  AUC 0.88344
+      Shipped scorer (lgbm_only) AUPRC 0.08445 (179x prevalence)  AUC 0.88808
+[3/5] row-level drive-clustered bootstrap (B=25, 40,000 drives/rep) ...
+      LightGBM only          AUPRC 0.08445  95% CI [0.07536, 0.09557]  (25 reps)
+      Shipped scorer (lgbm_only) AUPRC 0.08445  95% CI [0.07536, 0.09557]  (25 reps)
+[4/5] drive-level 'ever fails' cohort + exact bootstrap ...
+      LightGBM only          AUPRC 0.59962 95% CI [0.58425, 0.61421]  AUC 0.91892 [0.91384, 0.92442]  (5,350 failing drives)
+      Shipped scorer (lgbm_only) AUPRC 0.59962 95% CI [0.58425, 0.61421]  AUC 0.91892 [0.91384, 0.92442]  (5,350 failing drives)
+[5/5] tier accuracy + RUL counterfactual ...
+  tier  n_flagged   tp     fp   fn  precision   recall       f1  share_of_true_failures_caught
+  HIGH       6282 3554   2728 1796   0.565743 0.664299 0.611073                       0.664299
+MEDIUM      26512  853  25659 4497   0.032174 0.159439 0.053543                       0.159439
+   LOW     319589  943 318646 4407   0.002951 0.176262 0.005804                       0.176262
+
+RUL counterfactual (encoding=horizon_bounded; re-run after retraining):
+                                             metric     value
+  drives whose tier changes if RUL term is removed 38.000000
+               as % of at-risk queue (HIGH+MEDIUM)  0.000108
+                    demotions (HIGH/MEDIUM -> LOW)  0.000000
+                   promotions (LOW -> HIGH/MEDIUM)  0.000000
+                                      MEDIUM->HIGH 38.000000
+mean risk delta (RUL feature >= 0), with - without -0.001854
+                     n drives with RUL feature < 0  0.000000
+              mean RUL feature, drives that failed 63.454078
+        mean RUL feature, drives that did not fail 86.457744
+
+DONE -> results\paper_tables

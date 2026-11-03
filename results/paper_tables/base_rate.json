@@ -1,13 +1,13 @@
 {
   "row_level": {
     "n_drive_days": 144739479,
-    "n_positive": 67689,
-    "positive_rate": 0.0004676609344434631
+    "n_positive": 68291,
+    "positive_rate": 0.00047182013139621706
   },
   "drive_level": {
     "n_drives": 352383,
-    "n_failing": 5254,
-    "failing_rate": 0.014909913361314251
+    "n_failing": 5350,
+    "failing_rate": 0.01518234421070256
   },
   "base_paper": {
     "source": "Ding et al., IEEE ISPA 2024, Table IV",

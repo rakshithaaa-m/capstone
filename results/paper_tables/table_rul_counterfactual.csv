@@ -4,7 +4,7 @@ as % of at-risk queue (HIGH+MEDIUM),0.0001078372112162051
 demotions (HIGH/MEDIUM -> LOW),0.0
 promotions (LOW -> HIGH/MEDIUM),0.0
   MEDIUM->HIGH,38.0
-"mean risk delta (RUL feature >= 0), with - without",-0.00185421755386703
+"mean risk delta (RUL feature >= 0), with - without",-0.0018542175538670302
 n drives with RUL feature < 0,0.0
-"mean RUL feature, drives that failed",63.26201431314443
-"mean RUL feature, drives that did not fail",86.45428938441464
+"mean RUL feature, drives that failed",63.454077897452464
+"mean RUL feature, drives that did not fail",86.45774415162927
