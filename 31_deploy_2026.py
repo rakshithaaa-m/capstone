@@ -13,6 +13,7 @@ Stages (run in order, or `all`):
   score      ensemble scores for every 2026 row -> risk_tiers_test.csv, hybrid_test_scores.csv
   metrics    lgbm/hybrid metrics, tier accuracy, cutoffs, deployment.json
              (labelled rows only: to 2026-06-16, the last date with 14 days of follow-up)
+  policy     adopted alert policy (daily top-k, results_alerts2026) into deployment.json
   urgency    fleet urgency from the P-A survival model (Stage 23 method)
   explain    TreeSHAP for every at-risk drive + Stage 12 mitigation mapping
   dashboard  build_dashboard_db.py on results_deploy2026
@@ -162,6 +163,29 @@ def metrics() -> None:
           f"{prec:.3f}/{rec:.3f}, HIGH capture {rows[0]['cumulative_share_captured']:.3f}", flush=True)
 
 
+# --------------------------------------------------------------------- policy
+ALERTS = Path("results_alerts2026")
+
+
+def policy() -> None:
+    """Record the adopted alert policy (32_alert_policies.py) in deployment.json:
+    the daily budget k and the budget curve measured on 2026, shown by the dashboard."""
+    res = json.loads((ALERTS / "results.json").read_text())
+    if res["adopted"] != "K":
+        print(f"[POLICY] adopted policy is {res['adopted']}; dashboard keeps the threshold queue")
+        return
+    curve = pd.read_csv(ALERTS / "topk_grid_test.csv")
+    path = OUT / "deployment.json"
+    info = json.loads(path.read_text())
+    info["alert_policy"] = {
+        "rule": "daily_top_k", "k": int(res["k_star"]),
+        "decision": str(ALERTS / "results.json"),
+        "budget_curve_2026": curve.to_dict(orient="records"),
+    }
+    path.write_text(json.dumps(info, indent=2))
+    print(f"[POLICY] daily top-{res['k_star']} recorded in {path}", flush=True)
+
+
 # -------------------------------------------------------------------- urgency
 def urgency() -> None:
     import xgboost as xgb
@@ -214,7 +238,8 @@ def dashboard() -> None:
 
 
 def main() -> None:
-    stages = {"score": score, "metrics": metrics, "urgency": urgency, "explain": explain, "dashboard": dashboard}
+    stages = {"score": score, "metrics": metrics, "policy": policy, "urgency": urgency, "explain": explain,
+              "dashboard": dashboard}
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("stage", choices=list(stages) + ["all"])
     args = ap.parse_args()

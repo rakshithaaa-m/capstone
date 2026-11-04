@@ -499,6 +499,89 @@ def get_flagged_drives_preview(
     return result
 
 
+def alert_policy(results_dir: str) -> dict[str, Any] | None:
+    """The adopted daily top-k policy, when the deployment records one."""
+    path = Path(results_dir) / "deployment.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text()).get("alert_policy")
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def get_daily_alert_queue(results_dir: str, k: int, source_version: str = "") -> pd.DataFrame:
+    """Daily top-k: the k highest scores among drives assessed on the latest date.
+
+    Only drives scored on that date compete, so the rank is the drive's rank in that
+    day's fleet, as in 32_alert_policies.py."""
+    del source_version  # cache-key only
+    con, source, _ = get_source_connection(results_dir)
+    try:
+        if source != "drive_status":
+            return pd.DataFrame()
+        return con.execute(
+            """
+            SELECT row_number() OVER (ORDER BY hybrid_score DESC) AS rank,
+                   serial_number, date, hybrid_score AS risk_score, risk_tier, fleet_urgency_pct
+            FROM drive_status
+            WHERE date = (SELECT MAX(date) FROM drive_status)
+            ORDER BY hybrid_score DESC
+            LIMIT ?
+            """,
+            [int(k)],
+        ).fetchdf()
+    finally:
+        con.close()
+
+
+def render_alert_queue(results_dir: str, policy: dict[str, Any], source_version: str) -> None:
+    st.markdown("### Today's alert queue")
+    curve = pd.DataFrame(policy["budget_curve_2026"]).sort_values("k")
+    budgets = sorted(set(curve["k"].astype(int)))
+    k = st.select_slider(
+        "Daily alert budget (drives to review)",
+        options=budgets,
+        value=int(policy["k"]),
+        help="Alerts go to the k highest-scoring drives of the day. The adopted budget "
+        f"({int(policy['k']):,}) matched the old threshold's validation catch rate; a smaller "
+        "budget gives a shorter, more precise list.",
+    )
+    point = curve.loc[curve["k"] == k].iloc[0]
+    cols = st.columns(3, gap="medium")
+    with cols[0]:
+        metric_card("Alerts today", f"{k:,}", "fixed daily workload")
+    with cols[1]:
+        metric_card("Alerts that are real failures", f"{point['row_precision']:.1%}",
+                    f"about 1 in {1 / point['row_precision']:.0f} · measured Jan–Jun 2026")
+    with cols[2]:
+        metric_card("Failing drives caught", f"{point['catch_rate']:.1%}", "measured Jan–Jun 2026")
+    queue = get_daily_alert_queue(results_dir, k, source_version=source_version)
+    if queue.empty:
+        st.info("The daily queue needs the indexed drive_status table.")
+        return
+    st.caption(
+        f"Policy: daily top-k (adopted by the pre-registered study in results_alerts2026). "
+        f"Showing the {len(queue):,} highest scores on {pd.to_datetime(queue['date'].iloc[0]):%Y-%m-%d}. "
+        "Tiers still describe each drive's risk level; fleet urgency orders work within a tier."
+    )
+    display = queue.drop(columns=["date"]).rename(
+        columns={"rank": "Rank", "serial_number": "Drive", "risk_score": "Risk score",
+                 "risk_tier": "Tier", "fleet_urgency_pct": "Fleet urgency (%)"}
+    )
+    st.dataframe(
+        display,
+        hide_index=True,
+        width="stretch",
+        height=420,
+        column_config={
+            "Risk score": st.column_config.NumberColumn(format="%.6f"),
+            "Fleet urgency (%)": st.column_config.NumberColumn(
+                format="%.0f",
+                help="Share of the fleet expected to outlive this drive; not a day count.",
+            ),
+        },
+    )
+
+
 @st.cache_data(ttl=180, show_spinner=False)
 def get_drive_context_cached(
     results_dir: str,
@@ -803,6 +886,16 @@ def render_overview(
     with cols[3]:
         metric_card("LOW", f"{overview['LOW']:,}", "standard monitoring", "metric-low")
 
+    policy = alert_policy(results_dir)
+    if policy and policy.get("rule") == "daily_top_k":
+        render_alert_queue(results_dir, policy, source_version)
+    else:
+        render_tier_queue(results_dir, source_version)
+
+    render_model_health_section(results_dir, tier_accuracy, metrics, lgbm_metrics, status, source_version)
+
+
+def render_tier_queue(results_dir: str, source_version: str) -> None:
     st.markdown("### Operational queue")
     st.caption(
         "Highest latest-known risk scores (6 decimals). Fleet urgency orders work "
@@ -847,6 +940,15 @@ def render_overview(
                 "last-known retrospective results, not live telemetry."
             )
 
+
+def render_model_health_section(
+    results_dir: str,
+    tier_accuracy: pd.DataFrame,
+    metrics: pd.DataFrame,
+    lgbm_metrics: pd.DataFrame,
+    status: dict[str, Any],
+    source_version: str = "",
+) -> None:
     st.markdown("### Model health")
     health_cols = st.columns(3, gap="medium")
     if not metrics.empty and str(metrics.iloc[0].get("chosen_strategy")) == "lgbm_only":

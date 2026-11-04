@@ -18,5 +18,52 @@
     "2026-06-16"
   ],
   "decision": "results_retrain2026\\results.json",
-  "replaces": "models/ (frozen, trained to 2024-03-31)"
+  "replaces": "models/ (frozen, trained to 2024-03-31)",
+  "alert_policy": {
+    "rule": "daily_top_k",
+    "k": 2074,
+    "decision": "results_alerts2026\\results.json",
+    "budget_curve_2026": [
+      {
+        "k": 50,
+        "catch_rate": 0.1546307629538963,
+        "row_precision": 0.2191616766467065
+      },
+      {
+        "k": 100,
+        "catch_rate": 0.233782129742962,
+        "row_precision": 0.1765269461077844
+      },
+      {
+        "k": 200,
+        "catch_rate": 0.3488372093023256,
+        "row_precision": 0.1420359281437125
+      },
+      {
+        "k": 300,
+        "catch_rate": 0.4275805793553651,
+        "row_precision": 0.1239520958083832
+      },
+      {
+        "k": 500,
+        "catch_rate": 0.5055079559363526,
+        "row_precision": 0.1011497005988023
+      },
+      {
+        "k": 1000,
+        "catch_rate": 0.5879232966136271,
+        "row_precision": 0.0685449101796407
+      },
+      {
+        "k": 2000,
+        "catch_rate": 0.6699306405548756,
+        "row_precision": 0.0435688622754491
+      },
+      {
+        "k": 2074,
+        "catch_rate": 0.6723786209710322,
+        "row_precision": 0.0424878305106277
+      }
+    ]
+  }
 }
