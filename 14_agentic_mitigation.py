@@ -171,8 +171,8 @@ TOOL_SCHEMAS = [
             "type": "object",
             "properties": {
                 "recommended_action": {"type": "string"},
-                "technician_slot": {"type": "string"},
-                "parts_available": {"type": "boolean"},
+                "technician_slot": {"type": ["string", "null"]},
+                "parts_available": {"type": ["boolean", "null"]},
             },
             "required": ["recommended_action"],
             "additionalProperties": False,
@@ -624,6 +624,42 @@ def _result_from_run(
     }
 
 
+TICKET_REMINDER = (
+    "No maintenance ticket has been drafted yet. This drive is at risk, so every "
+    "assessment must end in a draft for operator approval: call "
+    "draft_maintenance_ticket now with your recommended action."
+)
+
+
+def _fallback_ticket(
+    context: dict[str, Any], trace: list[dict[str, Any]], turn: int
+) -> dict[str, Any]:
+    """Server-drafted ticket when the live model never calls the ticket tool.
+
+    An at-risk drive must always reach the approval queue; the action text is the
+    rule mapping, and the slot reuses any technician check the model made."""
+    prediction = context.get("prediction", {})
+    slot = next(
+        (t["output"].get("next_available_slot") for t in reversed(trace)
+         if t["tool"] == "check_technician_availability" and isinstance(t["output"], dict)),
+        None,
+    )
+    ticket = draft_maintenance_ticket(
+        context["serial_number"],
+        context.get("drive_model", "UNKNOWN"),
+        str(prediction.get("risk_tier") or context.get("risk_tier") or "UNKNOWN").upper(),
+        context.get("root_cause", "No explanation available."),
+        context.get("recommended_action", "Continue standard monitoring."),
+        technician_slot=slot,
+        assessment_as_of=prediction.get("as_of"),
+        observation_age_days=prediction.get("observation_age_days"),
+        model_rule_action=context.get("recommended_action"),
+    )
+    trace.append({"turn": turn, "tool": "draft_maintenance_ticket", "input": {"by": "server_fallback"},
+                  "output": ticket})
+    return ticket
+
+
 def _urgency_for_context(context: dict[str, Any]) -> str:
     prediction = context.get("prediction", {})
     tier = str(prediction.get("risk_tier") or context.get("risk_tier") or "").upper()
@@ -864,17 +900,25 @@ def run_agent_live(
     ]
     trace: list[dict[str, Any]] = []
     ticket: dict[str, Any] | None = None
+    reminded = False
+
+    def finish(summary: str, status: str = "complete", turn: int = max_turns) -> dict[str, Any]:
+        # An at-risk drive always reaches the approval queue: if the model never
+        # drafted a ticket, the server drafts one from the rule mapping.
+        source = "model_after_reminder" if reminded else "model"
+        final_ticket = ticket
+        if final_ticket is None:
+            final_ticket = _fallback_ticket(context, trace, turn)
+            source = "server_fallback"
+            summary = (f"{summary} The agent did not call the ticket tool, so the server "
+                       "drafted this ticket from the rule mapping.")
+        result = _result_from_run(context, summary, trace, final_ticket, mode="live", status=status)
+        result["ticket_source"] = source
+        return result
 
     for turn in range(1, max_turns + 1):
         if time.monotonic() > deadline:
-            return _result_from_run(
-                context,
-                "The live agent exceeded its three-minute run budget.",
-                trace,
-                ticket,
-                mode="live",
-                status="timeout",
-            )
+            return finish("The live agent exceeded its three-minute run budget.", "timeout", turn)
 
         request = {
             "model": selected_model,
@@ -889,25 +933,12 @@ def run_agent_live(
         try:
             response = client.messages.create(**request)
         except Exception as exc:
-            return _result_from_run(
-                context,
-                f"Live agent API call failed: {type(exc).__name__}: {exc}",
-                trace,
-                ticket,
-                mode="live",
-                status="api_error",
-            )
+            return finish(f"Live agent API call failed: {type(exc).__name__}: {exc}", "api_error", turn)
 
         messages.append({"role": "assistant", "content": response.content})
         if _block_value(response, "stop_reason") == "max_tokens":
-            return _result_from_run(
-                context,
-                "The agent response was truncated before a complete decision was returned.",
-                trace,
-                ticket,
-                mode="live",
-                status="incomplete",
-            )
+            return finish("The agent response was truncated before a complete decision was returned.",
+                          "incomplete", turn)
 
         tool_calls = [
             block
@@ -920,13 +951,12 @@ def run_agent_live(
                 for block in response.content
                 if _block_value(block, "type") == "text"
             ).strip()
-            return _result_from_run(
-                context,
-                final_text or "The agent completed without a textual summary.",
-                trace,
-                ticket,
-                mode="live",
-            )
+            # One reminder while the next request still offers tools.
+            if ticket is None and not reminded and turn < max_turns - 1:
+                reminded = True
+                messages.append({"role": "user", "content": TICKET_REMINDER})
+                continue
+            return finish(final_text or "The agent completed without a textual summary.", turn=turn)
 
         # A single turn should not fan out into an unbounded batch of tools.
         tool_calls = tool_calls[:3]
@@ -984,7 +1014,7 @@ def run_agent_live(
                 if call_name == "draft_maintenance_ticket":
                     if not isinstance(call_input.get("recommended_action"), str):
                         raise ValueError("recommended_action must be a string")
-                    if "technician_slot" in call_input and not isinstance(
+                    if call_input.get("technician_slot") is not None and not isinstance(
                         call_input["technician_slot"], str
                     ):
                         raise ValueError("technician_slot must be a string")
@@ -1029,8 +1059,7 @@ def run_agent_live(
             )
         messages.append({"role": "user", "content": tool_results})
 
-    summary = "The agent reached its turn limit before producing a final decision."
-    return _result_from_run(context, summary, trace, ticket, mode="live", status="turn_limit")
+    return finish("The agent reached its turn limit before producing a final decision.", "turn_limit")
 
 
 def run_agent(

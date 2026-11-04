@@ -144,6 +144,14 @@ def check_result(ctx: dict[str, Any], res: dict[str, Any], strict_policy: bool) 
             "m_action_equals_rule_mapping": (
                 ticket["recommended_action"] == ctx["recommended_action"]
             ) if ticket else None,
+            # who drafted the ticket: the model unprompted, after one reminder,
+            # or the server fallback
+            "m_ticket_by_model_unprompted": (
+                res.get("ticket_source", "model") == "model"
+            ) if at_risk else None,
+            "m_ticket_by_model": (
+                res.get("ticket_source", "model") != "server_fallback"
+            ) if at_risk else None,
         })
     return row
 
@@ -189,7 +197,8 @@ def drives(results_dir: Path) -> pd.DataFrame:
     con = duckdb.connect(str(results_dir / "dashboard.duckdb"), read_only=True)
     try:
         return con.execute(
-            "SELECT serial_number, risk_tier, fleet_urgency_pct FROM drive_status"
+            # ordered, so seeded samples do not depend on the table's physical row order
+            "SELECT serial_number, risk_tier, fleet_urgency_pct FROM drive_status ORDER BY serial_number"
         ).fetchdf()
     finally:
         con.close()

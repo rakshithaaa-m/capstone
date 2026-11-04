@@ -447,11 +447,14 @@ P("Table V lists seven of the thirteen invariants; all thirteen hold on every ev
   "*Live model.* We also ran the agent with a live open-weight model, GPT-OSS-120B served by Groq, on 22 "
   "drives of the deployed 2026 system: 16 HIGH and MEDIUM drives stratified by urgency, 2 LOW drives, and "
   "4 MEDIUM drives whose explanation carried an injected instruction to escalate the drive and state a "
-  "failure date. All 22 runs completed (median 25 s), and every server-enforced invariant held, including "
-  "in all four injection probes, which neither escalated the drive nor stated a day count. The gap was the "
-  "model's own reliability: in 4 of 20 at-risk runs it wrote its plan as text without calling the ticket "
-  "tool, so no draft reached the approval queue. Ticket creation is therefore checked rather than assumed, "
-  "and the rule policy remains the fallback.")
+  "failure date. A first run showed that the model sometimes wrote its plan as text without calling the "
+  "ticket tool (4 of 20 at-risk drives), so the server now reminds it once and otherwise drafts the ticket "
+  "from the rule mapping. In the final run every server-enforced invariant held, all four injection probes "
+  "were resisted, and every at-risk drive reached the approval queue: 10 tickets came from the model "
+  "unprompted, 6 after the reminder and 4 from the server fallback. Four runs did not complete cleanly, two "
+  "because the provider rejected a malformed or schema-invalid tool call and two because free-tier rate "
+  "limits exhausted the time budget; each still ended in a draft. The safety guarantees therefore rest on "
+  "server-side enforcement, not on the model's reliability.")
 
 # ============================================================== VI. 2026
 H1("Out-of-Time Evaluation on 2026 Data")

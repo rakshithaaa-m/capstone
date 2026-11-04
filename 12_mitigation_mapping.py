@@ -179,6 +179,100 @@ ROOT_CAUSE_LOOKUP = {
     },
 }
 
+# Drivers that became common under the retrained model (results_deploy2026,
+# 2026-11-04 queue: smart_27 1,818, smart_195 1,452, smart_2 1,095, smart_3 539,
+# smart_8 373, smart_90 276, smart_191 163, smart_192 154, smart_242 126,
+# smart_22 151 at-risk drives).  Attributes whose meaning is undocumented or
+# vendor-specific say so rather than guess.
+ROOT_CAUSE_LOOKUP.update({
+    "smart_2_raw": {
+        "root_cause": "Throughput performance attribute has moved (HGST/Toshiba attribute 2) -- the drive's "
+                       "measured data throughput is degrading, a general wear signal.",
+        "action": "Increase SMART polling; cross-check reallocated and pending sectors and seek "
+                   "performance (8) before scheduling replacement.",
+    },
+    "smart_3_raw": {
+        "root_cause": "Spin-up time is elevated -- the spindle motor takes longer to reach operating speed, "
+                       "an early sign of motor or bearing wear.",
+        "action": "Increase SMART polling; cross-check spin retry count (10) and start/stop count (4), and "
+                   "plan replacement if spin-up time keeps rising.",
+    },
+    "smart_8_raw": {
+        "root_cause": "Seek time performance is degrading -- head positioning is slowing, a mechanical wear "
+                       "signal similar to a rising seek error rate.",
+        "action": "Increase SMART polling to daily; flag for replacement if the trend continues over the "
+                   "next few readings.",
+    },
+    "smart_10_raw": {
+        "root_cause": "Spin retry count is non-zero -- the drive has needed more than one attempt to spin "
+                       "up, a direct sign of motor or power trouble.",
+        "action": "Schedule replacement within 7 days; check the host power supply in the meantime.",
+        "medium_action": "Check the host power supply; plan replacement at the next maintenance window, "
+                          "sooner if retries continue or the drive reaches HIGH.",
+    },
+    "smart_22_raw": {
+        "root_cause": "Helium level is dropping (HGST/WDC helium-sealed drives) -- a leaking seal changes "
+                       "head flying height and precedes mechanical failure.",
+        "action": "Schedule replacement within 7 days; a helium leak does not recover.",
+        "medium_action": "Plan replacement at the next maintenance window; act immediately if the helium "
+                          "level keeps falling or the drive reaches HIGH.",
+    },
+    "smart_191_raw": {
+        "root_cause": "G-sense error rate is rising -- the drive has registered shock or vibration events "
+                       "that can damage heads and platters.",
+        "action": "Check the chassis and neighbouring drives for vibration or recent physical handling; "
+                   "increase SMART polling and cross-check sector counts.",
+    },
+    "smart_192_raw": {
+        "root_cause": "Power-off (emergency) retract count is high -- the heads have been retracted by "
+                       "unexpected power loss unusually often.",
+        "action": "Check the host for power instability or unclean shutdowns; increase SMART polling and "
+                   "cross-check sector counts before scheduling replacement.",
+    },
+    "smart_195_raw": {
+        "root_cause": "Hardware ECC recovered count is elevated. On Seagate drives this raw value packs "
+                       "several counters together, so it is a secondary read-channel signal, not a plain "
+                       "error count.",
+        "action": "Cross-check reallocated (5), pending (197) and uncorrectable (187/198) sectors before "
+                   "acting; increase SMART polling and re-assess if those also rise.",
+    },
+    "smart_220_raw": {
+        "root_cause": "Disk shift is non-zero -- the platters have moved relative to the spindle, usually "
+                       "after shock or heat.",
+        "action": "Check for physical shock and cooling problems; increase SMART polling and flag for "
+                   "replacement if the shift grows.",
+    },
+    "smart_242_raw": {
+        "root_cause": "Total LBAs read is high relative to the fleet -- a large cumulative read workload "
+                       "contributing to wear over time.",
+        "action": "Add to the standard replacement rotation; not urgent on its own, but worth combining "
+                   "with other degradation signals.",
+    },
+    "smart_27_raw": {
+        "root_cause": "Vendor-specific attribute 27 is elevated; its meaning is not publicly documented, so "
+                       "it is a statistical warning rather than a known physical cause.",
+        "action": "Cross-check this drive's documented SMART attributes (sectors, errors, temperature) "
+                   "before acting; increase SMART polling.",
+    },
+    "smart_90_raw": {
+        "root_cause": "Vendor-specific attribute 90 is elevated; its meaning is not publicly documented, so "
+                       "it is a statistical warning rather than a known physical cause.",
+        "action": "Cross-check this drive's documented SMART attributes (sectors, errors, temperature) "
+                   "before acting; increase SMART polling.",
+    },
+})
+
+
+def lookup_entry(base: str) -> dict:
+    """Mapping for a base feature; a *_normalized attribute uses its *_raw entry
+    (same physical attribute, vendor-scaled health value)."""
+    if base in ROOT_CAUSE_LOOKUP:
+        return ROOT_CAUSE_LOOKUP[base]
+    if base.endswith("_normalized"):
+        return ROOT_CAUSE_LOOKUP.get(base[: -len("_normalized")] + "_raw", DEFAULT_ENTRY)
+    return DEFAULT_ENTRY
+
+
 DEFAULT_ENTRY = {
     "root_cause": "Elevated risk driven by a SMART attribute outside the standard mapping table.",
     "action": "Review the drive's individual SHAP explanation and escalate to standard monitoring rotation.",
@@ -265,7 +359,7 @@ def main() -> None:
     records = []
     for _, row in at_risk.iterrows():
         base = row["top_driver_base"]
-        lookup = ROOT_CAUSE_LOOKUP.get(base, DEFAULT_ENTRY)
+        lookup = lookup_entry(base)
         direction = row.get("top_driver_direction")
         if direction == "decreased risk":
             root_cause = (
