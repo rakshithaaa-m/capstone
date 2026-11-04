@@ -1,0 +1,24 @@
+
+[VAL]
+                                  R80             S9
+medium_cutoff                0.032534       0.044162
+at_risk_row_share            0.161168       0.093000
+positive_rows_captured       0.800125       0.716847
+failing_drive_capture        0.857551       0.786565
+medium_row_precision         0.000885       0.001144
+latest_day_high           2360.000000    2360.000000
+latest_day_medium        46887.000000   27906.000000
+latest_day_drives       338464.000000  338464.000000
+
+[TEST]
+                                  R80             S9
+medium_cutoff                0.032534       0.044162
+at_risk_row_share            0.160014       0.097223
+positive_rows_captured       0.795760       0.769854
+failing_drive_capture        0.847409       0.824153
+medium_row_precision         0.000689       0.001034
+latest_day_high           3166.000000    3166.000000
+latest_day_medium        56063.000000   33415.000000
+latest_day_drives       355238.000000  355238.000000
+
+[DECISION] at-risk reduction 42.3%, failing-drive capture drop 7.1 pts -> adopted R80 (MEDIUM cutoff 0.0325)
