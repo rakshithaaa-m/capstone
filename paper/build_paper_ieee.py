@@ -537,15 +537,18 @@ P("Persistence is worse on both metrics (precision −0.52 points, 95% CI −0.7
   "+0.55 points (CI +0.43 to +0.68, 14 percent relative) with 22 percent fewer alerts, for 2.2 points of "
   "catch rate (Table VIII). It works because scores drift upward as the fleet ages: the fixed threshold "
   "raised 26 percent more alerts a day in 2026 than on validation, while the budget holds the workload "
-  "constant. Smaller budgets trade coverage for precision: at 100 alerts a day, 17.7 percent of alerted "
-  "drive-days precede a failure (about one in six, against one in 28 for the threshold) and 23.4 percent "
-  "of failing drives are caught. A third pre-registered study shrank HIGH plus MEDIUM from 16 to 9.3 "
+  "constant. Smaller budgets trade coverage for precision (Fig. 3): at 100 alerts a day, 17.7 percent of "
+  "alerted drive-days precede a failure (about one in six, against one in 28 for the threshold) and 23.4 "
+  "percent of failing drives are caught. A third pre-registered study shrank HIGH plus MEDIUM from 16 to 9.3 "
   "percent of drive-days; on validation this lost 7.1 points of failing-drive coverage, above its 5-point "
   "limit, so the recall-calibrated tiers were kept.")
+figure(FIG / "fig3_alert_budget.png", "Daily alert budget on 2026 (retrained model): share of alerted "
+       "drive-days followed by a failure within 14 days, and share of failing drives caught. Diamonds mark "
+       "the 0.73 threshold, which raised 2,654 alerts a day.")
 H2("Drift Monitoring")
 P("Labels arrive 14 days late, so we monitor each month against the model's own validation period with "
   "two label-free signals, the share of drive-days above the alert threshold and the score distribution's "
-  "population stability index (PSI), and the AUPRC of the last three labelled months. Retraining is "
+  "population stability index (PSI), and the AUPRC of the last three labelled months (Fig. 4). Retraining is "
   "flagged at 1.25 times the validation alert volume, a PSI of 0.25, or 0.75 times the validation AUPRC. "
   "These limits were set after the frozen model's ageing was known, so the replay is illustrative rather "
   "than confirmatory; a first version using single-month AUPRC raised false alarms on noisy months and "
@@ -556,6 +559,8 @@ P("Labels arrive 14 days late, so we monitor each month against the model's own 
   "months after its training data, while its AUPRC was still at the validation level, an early warning "
   "that the daily budget absorbs. PSI never exceeded 0.06, because the drift is concentrated in the "
   "high-score tail; alert volume is the earliest and clearest signal.")
+figure(FIG / "fig4_drift_replay.png", "Drift monitor replay: monthly share of drive-days above the alert "
+       "threshold, relative to each model's validation period, with the warn and retrain limits.")
 
 # ============================================================== VII. discussion
 H1("Discussion and Limitations")
@@ -592,7 +597,8 @@ P("DiskGuard shows that useful, explainable and safe failure management can be b
 H5("Data and Code Availability")
 P("The Backblaze data are public {cite:backblaze}. All stages are scripted, with pinned dependencies, "
   "pre-registration documents and the results files behind every table, at "
-  "https://github.com/rakshithaaa-m/capstone.")
+  "https://github.com/rakshithaaa-m/capstone."
+  ).alignment = WD_ALIGN_PARAGRAPH.LEFT   # a justified line would stretch around the unbreakable URL
 
 H5("References")
 for k in _order:
