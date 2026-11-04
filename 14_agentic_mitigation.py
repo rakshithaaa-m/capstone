@@ -23,6 +23,11 @@ Run with Claude (the model is configurable)::
     # PowerShell
     $env:ANTHROPIC_API_KEY = "sk-ant-..."
     python 14_agentic_mitigation.py --serial_number ZL2CP0BS --results_dir results
+
+or with Groq's free tier (an open model; GROQ_MODEL overrides the default)::
+
+    $env:GROQ_API_KEY = "gsk_..."
+    python 14_agentic_mitigation.py --serial_number ZL2CP0BS --results_dir results
 """
 from __future__ import annotations
 
@@ -34,6 +39,7 @@ import os
 import time
 from functools import lru_cache
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import duckdb
@@ -719,12 +725,104 @@ def run_agent_dry(context: dict[str, Any]) -> dict[str, Any]:
     return _result_from_run(context, summary, trace, ticket, mode="simulation")
 
 
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+
+
+def live_provider() -> str | None:
+    """Anthropic when its key is set, else Groq (free tier) when its key is set."""
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    if os.environ.get("GROQ_API_KEY"):
+        return "groq"
+    return None
+
+
+def live_model(model: str | None = None) -> str:
+    if model:
+        return model
+    if live_provider() == "groq":
+        return os.environ.get("GROQ_MODEL", GROQ_DEFAULT_MODEL)
+    return os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5-5")
+
+
+class _GroqMessages:
+    """Groq's OpenAI-compatible chat API behind the ``messages.create`` call the
+    agent loop uses: requests are translated from, and responses back to, the
+    Anthropic content-block shape, so every server-side guard rail below applies
+    unchanged whichever provider answers."""
+
+    def __init__(self, api_key: str, timeout: float = 20.0, max_retries: int = 3):
+        self._key, self._timeout, self._retries = api_key, timeout, max_retries
+
+    @staticmethod
+    def _to_openai(request: dict[str, Any]) -> dict[str, Any]:
+        out: list[dict[str, Any]] = [{"role": "system", "content": request["system"]}]
+        for m in request["messages"]:
+            content = m["content"]
+            if isinstance(content, str):
+                out.append({"role": m["role"], "content": content})
+            elif m["role"] == "user":  # tool results
+                for block in content:
+                    out.append({"role": "tool", "tool_call_id": _block_value(block, "tool_use_id", ""),
+                                "content": str(_block_value(block, "content", ""))})
+            else:
+                text = "".join(str(_block_value(b, "text", "")) for b in content
+                               if _block_value(b, "type") == "text")
+                calls = [{"id": _block_value(b, "id"), "type": "function",
+                          "function": {"name": _block_value(b, "name"),
+                                       "arguments": json.dumps(_block_value(b, "input", {}))}}
+                         for b in content if _block_value(b, "type") == "tool_use"]
+                msg: dict[str, Any] = {"role": "assistant", "content": text or None}
+                if calls:
+                    msg["tool_calls"] = calls
+                out.append(msg)
+        body: dict[str, Any] = {"model": request["model"], "max_tokens": request["max_tokens"],
+                                "messages": out, "temperature": 0}
+        if request.get("tools"):
+            body["tools"] = [{"type": "function",
+                              "function": {"name": t["name"], "description": t["description"],
+                                           "parameters": t["input_schema"]}}
+                             for t in request["tools"]]
+        return body
+
+    def create(self, **request: Any) -> Any:
+        import requests
+
+        body = self._to_openai(request)
+        for attempt in range(self._retries + 1):
+            r = requests.post(GROQ_URL, json=body, timeout=self._timeout,
+                              headers={"Authorization": f"Bearer {self._key}"})
+            if r.status_code in (429, 500, 502, 503) and attempt < self._retries:
+                time.sleep(float(r.headers.get("retry-after", 5)))
+                continue
+            break
+        if r.status_code != 200:
+            raise RuntimeError(f"Groq HTTP {r.status_code}: {r.text[:300]}")
+        choice = r.json()["choices"][0]
+        msg = choice["message"]
+        blocks: list[dict[str, Any]] = []
+        if msg.get("content"):
+            blocks.append({"type": "text", "text": msg["content"]})
+        for call in msg.get("tool_calls") or []:
+            try:
+                args = json.loads(call["function"].get("arguments") or "{}")
+            except json.JSONDecodeError:
+                args = {}  # rejected by the tool-input validation below
+            blocks.append({"type": "tool_use", "id": call["id"],
+                           "name": call["function"]["name"], "input": args})
+        stop = ("max_tokens" if choice.get("finish_reason") == "length"
+                else "tool_use" if msg.get("tool_calls") else "end_turn")
+        return SimpleNamespace(content=blocks, stop_reason=stop)
+
+
 def run_agent_live(
     context: dict[str, Any],
     model: str | None = None,
     max_turns: int = 6,
 ) -> dict[str, Any]:
-    """Run Claude's tool-use loop with bounded turns and a wall-clock budget."""
+    """Run the live tool-use loop (Claude, or Groq's free tier) with bounded
+    turns and a wall-clock budget."""
     if not context.get("serial_number"):
         raise ValueError("Agent context is missing serial_number")
     tier = str(
@@ -743,17 +841,22 @@ def run_agent_live(
         )
         result["decision_source"] = "guard_rail"
         return result
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    provider = live_provider()
+    if provider is None:
         raise RuntimeError(
-            "ANTHROPIC_API_KEY is not set. Use simulation mode or configure the key."
+            "Neither ANTHROPIC_API_KEY nor GROQ_API_KEY is set. Use simulation mode "
+            "or configure a key."
         )
 
-    import anthropic  # imported lazily so dry-run mode needs no SDK/key
-
-    selected_model = model or os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5-5")
+    selected_model = live_model(model)
     # Keep an individual request bounded; the overall run is bounded below so
     # retries cannot leave the dashboard spinner running for many minutes.
-    client = anthropic.Anthropic(timeout=20.0, max_retries=1)
+    if provider == "anthropic":
+        import anthropic  # imported lazily so dry-run mode needs no SDK/key
+
+        client = anthropic.Anthropic(timeout=20.0, max_retries=1)
+    else:
+        client = SimpleNamespace(messages=_GroqMessages(os.environ["GROQ_API_KEY"]))
     max_turns = max(2, int(max_turns))
     deadline = time.monotonic() + 180.0
     messages: list[dict[str, Any]] = [
@@ -947,7 +1050,7 @@ def main() -> None:
     parser.add_argument(
         "--dry_run",
         action="store_true",
-        help="Use the deterministic simulation instead of the Anthropic API",
+        help="Use the deterministic simulation instead of a live model",
     )
     parser.add_argument(
         "--model",

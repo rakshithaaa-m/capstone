@@ -995,24 +995,25 @@ def render_agent_workspace(
     )
     with st.container(border=True):
         st.markdown('<div class="panel-title">Agent controls</div>', unsafe_allow_html=True)
-        has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+        has_key = _AGENT.live_provider() is not None
         mode_label = st.radio(
             "Decision mode",
-            ["Simulation", "Live Claude agent"],
+            ["Simulation", "Live agent"],
             horizontal=True,
             key="agent_mode",
-            help="Simulation is deterministic and has no API cost. Live mode requires ANTHROPIC_API_KEY.",
+            help="Simulation is deterministic and has no API cost. Live mode requires "
+            "ANTHROPIC_API_KEY or GROQ_API_KEY (free tier).",
         )
-        if mode_label == "Live Claude agent" and not has_key:
-            st.warning("ANTHROPIC_API_KEY is not configured; run in Simulation mode.")
-        if mode_label == "Live Claude agent":
+        if mode_label == "Live agent" and not has_key:
+            st.warning("No ANTHROPIC_API_KEY or GROQ_API_KEY is configured; run in Simulation mode.")
+        if mode_label == "Live agent" and has_key:
             st.caption(
-                f"Configured live model: {os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-5-5')}"
+                f"Configured live model: {_AGENT.live_provider()} / {_AGENT.live_model()}"
             )
         st.caption("Inventory, scheduling, and ticket tools are simulated. No external action is executed.")
 
     dry_run = mode_label == "Simulation"
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5-5") if not dry_run else None
+    model = _AGENT.live_model() if not dry_run and has_key else None
     prediction_version = (
         f"{context.get('prediction', {}).get('as_of')}:"
         f"{float(context.get('prediction', {}).get('risk_score', 0.0)):.6f}"
