@@ -1,0 +1,11 @@
+{
+  "threshold": 0.73,
+  "k_star": 2074,
+  "val_catch_rate_B": 0.6222010481181515,
+  "val_alerts_per_day_B": 2107.6,
+  "val_row_precision_B": 0.035317562211827226,
+  "val_failing_drives": 2099,
+  "val_days": 170,
+  "val_rows": 56039738,
+  "val_positive_rows": 25541
+}

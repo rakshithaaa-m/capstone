@@ -109,6 +109,7 @@ the training period, and the tier cutoffs are fitted on validation.
 | `29_retrain_2026.py` | pre-registered retraining study (retrained and fleet-relative variants vs frozen, tested on 2026) → `results_retrain2026/` |
 | `30_relabel_dec2025.py` | completes test labels for 2025-12-18..31 with January 2026 failures (602 rows); rewrites the test label files and bootstrap cache |
 | `31_deploy_2026.py` | ships the retrained model: scores 2026, tiers, urgency, SHAP actions, dashboard DB → `results_deploy2026/` |
+| `32_alert_policies.py` | pre-registered alert-policy study (persistence, daily top-k) for the shipped model → `results_alerts2026/` |
 
 The `fix*.py`, `check_*.py`, `verify_*.py` and `diagnose_*.py` files are
 one-off diagnostics kept for provenance.

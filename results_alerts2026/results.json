@@ -1,0 +1,96 @@
+{
+  "preregistration": "results_alerts2026\\PREREGISTRATION.md",
+  "k_star": 2074,
+  "threshold": 0.73,
+  "val_summary": {
+    "B": {
+      "new_alert_precision": 0.032922458945378645,
+      "catch_rate": 0.6222010481181515,
+      "new_alerts_per_day": 149.37058823529412,
+      "alerted_rows_per_day": 2107.6,
+      "row_precision": 0.035317562211827226
+    },
+    "P2": {
+      "new_alert_precision": 0.0334274421230943,
+      "catch_rate": 0.5736064792758456,
+      "new_alerts_per_day": 104.17647058823529,
+      "alerted_rows_per_day": 1958.229411764706,
+      "row_precision": 0.035500256834655554
+    },
+    "P3": {
+      "new_alert_precision": 0.031166073324589344,
+      "catch_rate": 0.5378751786565031,
+      "new_alerts_per_day": 94.18235294117648,
+      "alerted_rows_per_day": 1854.0529411764705,
+      "row_precision": 0.03561672520297345
+    },
+    "K": {
+      "new_alert_precision": 0.0325024154589372,
+      "catch_rate": 0.6222010481181515,
+      "new_alerts_per_day": 152.2058823529412,
+      "alerted_rows_per_day": 2074.0,
+      "row_precision": 0.035892563389868966
+    }
+  },
+  "test_summary": {
+    "B": {
+      "new_alert_precision": 0.0402363184079602,
+      "catch_rate": 0.6948184414524684,
+      "new_alerts_per_day": 192.5748502994012,
+      "alerted_rows_per_day": 2653.604790419162,
+      "row_precision": 0.035822923060259235
+    },
+    "P2": {
+      "new_alert_precision": 0.035024884878366434,
+      "catch_rate": 0.6160750713994289,
+      "new_alerts_per_day": 128.73652694610777,
+      "alerted_rows_per_day": 2461.0299401197603,
+      "row_precision": 0.035477576205862886
+    },
+    "P3": {
+      "new_alert_precision": 0.03270590682196339,
+      "catch_rate": 0.5785393716850266,
+      "new_alerts_per_day": 115.16167664670658,
+      "alerted_rows_per_day": 2332.293413173653,
+      "row_precision": 0.03550256358907605
+    },
+    "K": {
+      "new_alert_precision": 0.045761415411220856,
+      "catch_rate": 0.6723786209710322,
+      "new_alerts_per_day": 180.05389221556885,
+      "alerted_rows_per_day": 2074.0,
+      "row_precision": 0.04248783051062773
+    }
+  },
+  "test_P2_vs_B": {
+    "delta_precision": -0.005211433529593766,
+    "precision_ci": [
+      -0.007072163611410298,
+      -0.0032482021086134216
+    ],
+    "delta_catch": -0.07874337005303958,
+    "catch_ci": [
+      -0.08967767307773149,
+      -0.06846100367041529
+    ],
+    "n_boot": 1000,
+    "improves_precision": false,
+    "adoptable": false
+  },
+  "test_K_vs_B": {
+    "delta_precision": 0.005525097003260655,
+    "precision_ci": [
+      0.004251094628368844,
+      0.006843374622909027
+    ],
+    "delta_catch": -0.022439820481436147,
+    "catch_ci": [
+      -0.027779740277217062,
+      -0.01668367710723106
+    ],
+    "n_boot": 1000,
+    "improves_precision": true,
+    "adoptable": true
+  },
+  "adopted": "K"
+}

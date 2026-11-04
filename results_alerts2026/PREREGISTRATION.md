@@ -43,4 +43,7 @@ For P2 vs B and for K\* vs B:
   new-alert precision is adopted; if neither, B stays.
 
 ## Deviations
-(none)
+- 2026-11-04, implementation bug, after the first evaluate run: drives with fewer
+  rows than the persistence window had NULL episode counts for P2/P3, which made
+  the P2 bootstrap NaN (summary tables were unaffected). Counts are now filled with
+  0 and evaluate was re-run; rules, k* and the seed are unchanged.

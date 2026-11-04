@@ -1,0 +1,19 @@
+[DRIVES] val: 341,718 drives, 2,099 failing, 170 days (0.6 min)
+
+[VAL]
+policy  new_alert_precision  catch_rate  new_alerts_per_day  alerted_rows_per_day  row_precision
+     B             0.032922    0.622201          149.370588           2107.600000       0.035318
+    P2             0.033427    0.573606          104.176471           1958.229412       0.035500
+    P3             0.031166    0.537875           94.182353           1854.052941       0.035617
+     K             0.032502    0.622201          152.205882           2074.000000       0.035893
+[DRIVES] test: 363,405 drives, 2,451 failing, 167 days (0.3 min)
+
+[TEST]
+policy  new_alert_precision  catch_rate  new_alerts_per_day  alerted_rows_per_day  row_precision
+     B             0.040236    0.694818          192.574850           2653.604790       0.035823
+    P2             0.035025    0.616075          128.736527           2461.029940       0.035478
+    P3             0.032706    0.578539          115.161677           2332.293413       0.035503
+     K             0.045761    0.672379          180.053892           2074.000000       0.042488
+[TEST] P2 vs B: {'delta_precision': np.float64(-0.005211433529593766), 'precision_ci': [np.float64(-0.007072163611410298), np.float64(-0.0032482021086134216)], 'delta_catch': np.float64(-0.07874337005303958), 'catch_ci': [np.float64(-0.08967767307773149), np.float64(-0.06846100367041529)], 'n_boot': 1000, 'improves_precision': False, 'adoptable': False}
+[TEST] K vs B: {'delta_precision': np.float64(0.005525097003260655), 'precision_ci': [np.float64(0.004251094628368844), np.float64(0.006843374622909027)], 'delta_catch': np.float64(-0.022439820481436147), 'catch_ci': [np.float64(-0.027779740277217062), np.float64(-0.01668367710723106)], 'n_boot': 1000, 'improves_precision': True, 'adoptable': True}
+[DECISION] adopted policy: K
