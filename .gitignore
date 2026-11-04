@@ -87,3 +87,6 @@ results_deploy2026/hybrid_test_scores.csv
 results_deploy2026/shap_values_at_risk.parquet
 results_deploy2026/mitigation_mapping.json
 results_deploy2026/pa_urgency_test.csv
+
+# Model 2 evaluation exports (GB-scale, rebuilt by 35_model2_eval.py export)
+results_model2/_work/

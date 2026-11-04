@@ -1,0 +1,24 @@
+[LOAD] 57,594,607 rows, 27,639 positives, 363,405 drives; AUPRC 0.077893
+[CHECK] weighted AP at unit weights 0.0778926066 vs sklearn 0.0778926066
+[BOOT] 50/1000  eta 28.0 min
+[BOOT] 100/1000  eta 26.4 min
+[BOOT] 150/1000  eta 24.9 min
+[BOOT] 200/1000  eta 23.4 min
+[BOOT] 250/1000  eta 22.0 min
+[BOOT] 300/1000  eta 20.5 min
+[BOOT] 350/1000  eta 19.0 min
+[BOOT] 400/1000  eta 17.5 min
+[BOOT] 450/1000  eta 16.1 min
+[BOOT] 500/1000  eta 14.6 min
+[BOOT] 550/1000  eta 13.2 min
+[BOOT] 600/1000  eta 11.7 min
+[BOOT] 650/1000  eta 10.2 min
+[BOOT] 700/1000  eta 8.8 min
+[BOOT] 750/1000  eta 7.3 min
+[BOOT] 800/1000  eta 5.8 min
+[BOOT] 850/1000  eta 4.4 min
+[BOOT] 900/1000  eta 2.9 min
+[BOOT] 950/1000  eta 1.5 min
+[BOOT] 1000/1000  eta 0.0 min
+[RESULT] AUPRC 0.07789  95% CI [0.07010, 0.08587]  B=1000
+[SAVE] results_model2\row_auprc_ci.csv

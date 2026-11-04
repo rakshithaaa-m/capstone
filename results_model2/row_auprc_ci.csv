@@ -1,0 +1,2 @@
+level,model,auprc,ci_lo,ci_hi,n_boot,lift_over_prevalence,resampling_unit
+drive-day,LightGBM (5-seed ensemble),0.07789260655529487,0.07009798159435016,0.08586802640396027,1000,162.31390653633747,"physical drive (full, all 363,405 drives)"

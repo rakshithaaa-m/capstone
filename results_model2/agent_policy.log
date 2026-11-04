@@ -1,0 +1,28 @@
+[POLICY] 64,743 drives: 5,108 HIGH, 57,635 MEDIUM, 2,000 LOW sample
+[POLICY] 5,000/64,743  114s
+[POLICY] 10,000/64,743  226s
+[POLICY] 15,000/64,743  340s
+[POLICY] 20,000/64,743  452s
+[POLICY] 25,000/64,743  566s
+[POLICY] 30,000/64,743  681s
+[POLICY] 35,000/64,743  796s
+[POLICY] 40,000/64,743  911s
+[POLICY] 45,000/64,743  1,026s
+[POLICY] 50,000/64,743  1,142s
+[POLICY] 55,000/64,743  1,256s
+[POLICY] 60,000/64,743  1,370s
+[POLICY] done in 1,478s; 0 drives with a failed invariant
+                              check      kind  applicable  passed  failed  pass_rate
+               prediction_unchanged invariant       64743   64743       0        1.0
+                 low_gets_no_action invariant        2000    2000       0        1.0
+       ticket_identity_server_owned invariant       62743   62743       0        1.0
+   ticket_is_draft_needing_approval invariant       62743   62743       0        1.0
+        parts_check_locked_to_drive invariant        5108    5108       0        1.0
+                at_risk_gets_ticket invariant       62743   62743       0        1.0
+             medium_never_escalated invariant       57635   57635       0        1.0
+medium_action_has_no_fixed_deadline invariant       57635   57635       0        1.0
+       no_failure_day_count_claimed invariant       64743   64743       0        1.0
+                          completed invariant       64743   64743       0        1.0
+              high_scheduled_urgent invariant        5108    5108       0        1.0
+             parts_checked_iff_high invariant       62743   62743       0        1.0
+         action_equals_rule_mapping invariant       62743   62743       0        1.0

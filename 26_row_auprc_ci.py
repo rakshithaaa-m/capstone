@@ -72,7 +72,7 @@ def main() -> None:
     pd.DataFrame([{
         "level": "drive-day", "model": "LightGBM (5-seed ensemble)", "auprc": point,
         "ci_lo": lo, "ci_hi": hi, "n_boot": args.boot, "lift_over_prevalence": point / prevalence,
-        "resampling_unit": "physical drive (full, all 352,383 drives)",
+        "resampling_unit": f"physical drive (full, all {n_drives:,} drives)",
     }]).to_csv(args.out, index=False)
     print(f"[RESULT] AUPRC {point:.5f}  95% CI [{lo:.5f}, {hi:.5f}]  B={args.boot}")
     print(f"[SAVE] {args.out}")

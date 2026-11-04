@@ -1,0 +1,35 @@
+{
+  "drive_table": [
+    {
+      "tier": "HIGH",
+      "drives": 4841,
+      "failing_caught": 1649,
+      "share_of_failing": 0.6727866177070584,
+      "precision": 0.3406321008056187
+    },
+    {
+      "tier": "MEDIUM",
+      "drives": 57075,
+      "failing_caught": 414,
+      "share_of_failing": 0.1689106487148103,
+      "precision": 0.007253613666228647
+    },
+    {
+      "tier": "HIGH+MEDIUM",
+      "drives": 61916,
+      "failing_caught": 2063,
+      "share_of_failing": 0.8416972664218686,
+      "precision": 0.033319335874410494
+    },
+    {
+      "tier": "LOW",
+      "drives": 301489,
+      "failing_caught": 388,
+      "share_of_failing": 0.15830273357813138,
+      "precision": 0.0012869457923838016
+    }
+  ],
+  "row_capture_high": 0.5787112413618438,
+  "row_capture_high_medium": 0.7957596150367234,
+  "high_share_of_drives": 0.013321225629806964
+}

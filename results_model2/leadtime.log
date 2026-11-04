@@ -1,0 +1,11 @@
+[LEAD] 2,451 failing drives
+[LEAD] L=30d  evaluated= 1882  flagged_HIGH=  848  share=0.3460
+[LEAD] L=14d  evaluated= 2026  flagged_HIGH= 1082  share=0.4415
+[LEAD] L= 7d  evaluated= 2068  flagged_HIGH= 1167  share=0.4761
+[LEAD] L= 1d  evaluated= 2170  flagged_HIGH= 1333  share=0.5439
+[SAVE] results_model2\leadtime.csv
+ horizon_days  n_drives  n_evaluated  n_flagged_high  share_flagged_high
+           30      2451         1882             848            0.345981
+           14      2451         2026            1082            0.441452
+            7      2451         2068            1167            0.476132
+            1      2451         2170            1333            0.543860

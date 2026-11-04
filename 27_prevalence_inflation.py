@@ -76,9 +76,12 @@ def main() -> None:
     ap.add_argument("--cache", default="results_fusion/_pb_confirm_joined.parquet")
     ap.add_argument("--reps", type=int, default=10)
     ap.add_argument("--out", default="results/paper_tables/table_prevalence_inflation.csv")
+    ap.add_argument("--threshold", type=float, default=None,
+                    help="alert threshold; default: the frozen model's (models/lgbm_threshold.json)")
     args = ap.parse_args()
 
-    thr = float(json.load(open("models/lgbm_threshold.json"))["threshold"])
+    thr = args.threshold if args.threshold is not None else float(
+        json.load(open("models/lgbm_threshold.json"))["threshold"])
     t = pq.read_table(args.cache, columns=["drive_id", "prob", "y"])
     drive = t["drive_id"].to_numpy()
     prob = t["prob"].to_numpy()

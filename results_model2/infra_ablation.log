@@ -1,0 +1,51 @@
+[BUILD] train: 4,271,396 rows, 36.7% with vault_id
+[BUILD] test: 57,594,607 rows, 100.0% with vault_id
+[TRAIN] 4,271,396 rows, 388,417 positives, 217 features
+[TRAIN] seed 42 fitted in 1.4 min
+[TRAIN] seed 7 fitted in 1.3 min
+[TRAIN] seed 13 fitted in 1.3 min
+[TRAIN] seed 99 fitted in 1.3 min
+[TRAIN] seed 23 fitted in 1.3 min
+[PREDICT] 57,594,607 rows (60.9 min)
+[BOOT] sorting 2 x 57,594,607 rows by score ...
+[BOOT] 25/1000  (3.56s/rep, eta 57.8 min)
+[BOOT] 50/1000  (3.56s/rep, eta 56.3 min)
+[BOOT] 75/1000  (3.56s/rep, eta 54.8 min)
+[BOOT] 100/1000  (3.55s/rep, eta 53.3 min)
+[BOOT] 125/1000  (3.56s/rep, eta 51.8 min)
+[BOOT] 150/1000  (3.56s/rep, eta 50.4 min)
+[BOOT] 175/1000  (3.55s/rep, eta 48.9 min)
+[BOOT] 200/1000  (3.55s/rep, eta 47.4 min)
+[BOOT] 225/1000  (3.55s/rep, eta 45.9 min)
+[BOOT] 250/1000  (3.55s/rep, eta 44.4 min)
+[BOOT] 275/1000  (3.55s/rep, eta 42.9 min)
+[BOOT] 300/1000  (3.55s/rep, eta 41.4 min)
+[BOOT] 325/1000  (3.55s/rep, eta 39.9 min)
+[BOOT] 350/1000  (3.55s/rep, eta 38.5 min)
+[BOOT] 375/1000  (3.55s/rep, eta 37.0 min)
+[BOOT] 400/1000  (3.55s/rep, eta 35.5 min)
+[BOOT] 425/1000  (3.55s/rep, eta 34.0 min)
+[BOOT] 450/1000  (3.55s/rep, eta 32.5 min)
+[BOOT] 475/1000  (3.55s/rep, eta 31.1 min)
+[BOOT] 500/1000  (3.55s/rep, eta 29.6 min)
+[BOOT] 525/1000  (3.55s/rep, eta 28.1 min)
+[BOOT] 550/1000  (3.55s/rep, eta 26.6 min)
+[BOOT] 575/1000  (3.55s/rep, eta 25.1 min)
+[BOOT] 600/1000  (3.55s/rep, eta 23.6 min)
+[BOOT] 625/1000  (3.55s/rep, eta 22.2 min)
+[BOOT] 650/1000  (3.55s/rep, eta 20.7 min)
+[BOOT] 675/1000  (3.55s/rep, eta 19.2 min)
+[BOOT] 700/1000  (3.55s/rep, eta 17.7 min)
+[BOOT] 725/1000  (3.55s/rep, eta 16.3 min)
+[BOOT] 750/1000  (3.55s/rep, eta 14.8 min)
+[BOOT] 775/1000  (3.55s/rep, eta 13.3 min)
+[BOOT] 800/1000  (3.54s/rep, eta 11.8 min)
+[BOOT] 825/1000  (3.54s/rep, eta 10.3 min)
+[BOOT] 850/1000  (3.54s/rep, eta 8.9 min)
+[BOOT] 875/1000  (3.54s/rep, eta 7.4 min)
+[BOOT] 900/1000  (3.54s/rep, eta 5.9 min)
+[BOOT] 925/1000  (3.54s/rep, eta 4.4 min)
+[BOOT] 950/1000  (3.54s/rep, eta 3.0 min)
+[BOOT] 975/1000  (3.54s/rep, eta 1.5 min)
+[BOOT] 1000/1000  (3.54s/rep, eta 0.0 min)
+[DECIDE] {"rows": 57594607, "auprc_A_without_infra": 0.07789260655529487, "auprc_B_with_infra": 0.07971691655749, "delta": -0.0018243100021951286, "ci": [-0.0033853502939070173, -0.00026529644695612], "n_boot": 1000, "per_seed_A": {"42": 0.07671128903272412, "7": 0.07688706458514126, "13": 0.07746819387421156, "99": 0.07646304654962477, "23": 0.07817172301118437}, "per_seed_B": {"42": 0.07867733702281662, "7": 0.07843811529296546, "13": 0.07950411117295476, "99": 0.07920631142636371, "23": 0.07981580404218053}, "A_wins_seeds": 0, "verdict": "REVERSAL"}

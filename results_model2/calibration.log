@@ -1,0 +1,4 @@
+[CAL] Brier (all) = 0.01120926   Brier (positives) = 0.30655396
+[CAL] ECE (10 equal-width bins) = 0.03740123
+[CAL] n = 57,594,607  positives = 27,639
+[SAVE] results_model2\calibration_bins.csv / results_model2\calibration.csv

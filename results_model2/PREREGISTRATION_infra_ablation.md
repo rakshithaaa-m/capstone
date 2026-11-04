@@ -35,3 +35,9 @@ Otherwise: inconclusive.
 
 ## Deviations
 (none)
+
+## Result (2026-11-04, appended after the single look)
+AUPRC A (shipped, no identifiers) 0.07789; B (identifiers restored) 0.07972.
+ΔAUPRC = A − B = −0.00182, 95% CI [−0.00339, −0.00027] (B = 1000, 363,405 drives).
+B beats A in all 5 matched seeds. **Verdict: REVERSAL** — the identifiers help Model 2
+slightly. Model 1's verdict was equivalence. Full numbers: `infra_ablation.json`.

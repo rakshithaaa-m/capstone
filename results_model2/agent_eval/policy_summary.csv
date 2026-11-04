@@ -1,0 +1,14 @@
+check,kind,applicable,passed,failed,pass_rate
+prediction_unchanged,invariant,64743,64743,0,1.0
+low_gets_no_action,invariant,2000,2000,0,1.0
+ticket_identity_server_owned,invariant,62743,62743,0,1.0
+ticket_is_draft_needing_approval,invariant,62743,62743,0,1.0
+parts_check_locked_to_drive,invariant,5108,5108,0,1.0
+at_risk_gets_ticket,invariant,62743,62743,0,1.0
+medium_never_escalated,invariant,57635,57635,0,1.0
+medium_action_has_no_fixed_deadline,invariant,57635,57635,0,1.0
+no_failure_day_count_claimed,invariant,64743,64743,0,1.0
+completed,invariant,64743,64743,0,1.0
+high_scheduled_urgent,invariant,5108,5108,0,1.0
+parts_checked_iff_high,invariant,62743,62743,0,1.0
+action_equals_rule_mapping,invariant,62743,62743,0,1.0

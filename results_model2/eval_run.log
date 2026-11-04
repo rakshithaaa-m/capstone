@@ -1,0 +1,57 @@
+[EXPORT] 57,594,607 rows, 27,639 positives, 363,405 drives -> results_model2\_work
+[DONE] export (1.5 min)
+[HEADLINE] {"rows": 57594607, "positives": 27639, "drives": 363405, "prevalence": 0.00047988868124406163, "auprc": 0.07789260655529487, "roc_auc": 0.8863312561273712, "threshold": 0.73, "precision_at_thr": 0.035822923060259235, "recall_at_thr": 0.5743695502731647, "lift": 162.31390653633747, "drive_failing": 2451, "drive_auprc": 0.45853726187263566, "drive_auprc_ci": [0.43769899470393514, 0.47899711990217236], "drive_roc_auc": 0.9083128127208895, "drive_roc_ci": [0.9004502005901743, 0.9158840792757077]}
+    level                      model    auprc    ci_lo    ci_hi  n_boot  lift_over_prevalence                           resampling_unit
+drive-day LightGBM (5-seed ensemble) 0.077893 0.070098 0.085868    1000            162.313907 physical drive (full, all 352,383 drives)
+[DONE] headline (30.9 min)
+    protocol  neg_per_pos     n_rows  prevalence    auprc  roc_auc  precision_at_thr  recall_at_thr  f1_at_thr  accuracy_at_thr  best_f1  auprc_min  auprc_max  precision_at_thr_min  precision_at_thr_max  best_f1_min  best_f1_max  reps
+        true         2083 57594607.0    0.000480 0.077893 0.886331          0.035823        0.57437   0.067440         0.992377 0.165105   0.077893   0.077893              0.035823              0.035823     0.165105     0.165105     1
+       never         2083 57594607.0    0.000480 0.000480 0.500000          0.000000        0.00000   0.000000         0.999520 0.000000   0.000480   0.000480              0.000000              0.000000     0.000000     0.000000     1
+     healthy         2076 57413078.0    0.000481 0.112584 0.887160          0.042213        0.57437   0.078646         0.993521 0.207167   0.112584   0.112584              0.042213              0.042213     0.207167     0.207167     1
+undersampled          100  2791898.4    0.009900 0.461002 0.886363          0.435896        0.57437   0.495638         0.988427 0.511080   0.457913   0.462862              0.433104              0.441009     0.509007     0.513571    10
+undersampled           10   304133.2    0.090878 0.741520 0.886424          0.886322        0.57437   0.697034         0.954624 0.728954   0.739844   0.743406              0.883564              0.889755     0.727967     0.730338    10
+undersampled            1    55286.9    0.499926 0.916550 0.886367          0.987032        0.57437   0.726169         0.783443 0.830835   0.915494   0.918181              0.984557              0.989281     0.829796     0.832713    10
+[DONE] inflation (1.4 min)
+[TIERS] {"drive_table": [{"tier": "HIGH", "drives": 4841, "failing_caught": 1649, "share_of_failing": 0.6727866177070584, "precision": 0.3406321008056187}, {"tier": "MEDIUM", "drives": 57075, "failing_caught": 414, "share_of_failing": 0.1689106487148103, "precision": 0.007253613666228647}, {"tier": "HIGH+MEDIUM", "drives": 61916, "failing_caught": 2063, "share_of_failing": 0.8416972664218686, "precision": 0.033319335874410494}, {"tier": "LOW", "drives": 301489, "failing_caught": 388, "share_of_failing": 0.15830273357813138, "precision": 0.0012869457923838016}], "row_capture_high": 0.5787112413618438, 
+[DONE] tiers (0.5 min)
+ horizon_days  n_drives  n_evaluated  n_flagged_high  share_flagged_high
+           30      2451         1882             848            0.345981
+           14      2451         2026            1082            0.441452
+            7      2451         2068            1167            0.476132
+            1      2451         2170            1333            0.543860
+[DONE] leadtime (0.1 min)
+ brier_all  brier_positives        n  n_positives      ece  bins            calibration_scheme                                                                                            cutoff_source
+  0.011209         0.306554 57594607        27639 0.037401    10 10 equal-width bins, test set quantile-based decision thresholds from Stage 09 (recall-calibrated), not probability calibration output
+[DONE] calib (0.3 min)
+[SEEDS] {"per_seed_auprc": {"42": 0.07671128903272412, "7": 0.07688706458514126, "13": 0.07746819387421156, "99": 0.07646304654962477, "23": 0.07817172301118437}, "min": 0.07646304654962477, "max": 0.07817172301118437, "mean": 0.07714026341057721, "minutes": 63.4958898862203}
+[DONE] seeds (63.5 min)
+[LOGREG] {"auprc": 0.02136354617648296, "roc_auc": 0.8198014315853672}
+[DONE] logreg (9.9 min)
+[URGENCY] {"drives": 363404, "failing": 2552, "c_index": 0.8406452331616707, "mean_urgency_by_tier": {"HIGH": 99.27144982007619, "LOW": 55.852322104890426, "MEDIUM": 83.96502655483802}}
+[DONE] urgency (24.8 min)
+D:\capstone\.venv\Lib\site-packages\shap\explainers\_tree.py:632: UserWarning: LightGBM binary classifier with TreeExplainer shap values output has changed to a list of ndarray
+  warnings.warn(
+error_total             0.293642
+smart_1_normalized      0.170830
+smart_1_raw             0.154309
+smart_4_raw             0.107667
+smart_241_raw           0.105985
+smart_5_raw             0.098444
+smart_9_raw             0.084135
+smart_195_normalized    0.077404
+[DONE] shap (4.0 min)
+                              check      kind  applicable  passed  failed  pass_rate
+               prediction_unchanged invariant       64743   64743       0        1.0
+                 low_gets_no_action invariant        2000    2000       0        1.0
+       ticket_identity_server_owned invariant       62743   62743       0        1.0
+   ticket_is_draft_needing_approval invariant       62743   62743       0        1.0
+        parts_check_locked_to_drive invariant        5108    5108       0        1.0
+                at_risk_gets_ticket invariant       62743   62743       0        1.0
+             medium_never_escalated invariant       57635   57635       0        1.0
+medium_action_has_no_fixed_deadline invariant       57635   57635       0        1.0
+       no_failure_day_count_claimed invariant       64743   64743       0        1.0
+                          completed invariant       64743   64743       0        1.0
+              high_scheduled_urgent invariant        5108    5108       0        1.0
+             parts_checked_iff_high invariant       62743   62743       0        1.0
+         action_equals_rule_mapping invariant       62743   62743       0        1.0
+[DONE] agent (24.8 min)
