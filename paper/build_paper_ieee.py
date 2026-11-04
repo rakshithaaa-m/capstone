@@ -278,8 +278,7 @@ P("Closest to our work, Ding *et al.* {cite:ding} combine an MLP time-mixing sta
   "contains only drives that fail, so it cannot measure false alarms on the healthy majority. Second, each "
   "drive is min-max normalised over its full recorded window, which includes observations a daily scorer "
   "would not yet have. We therefore address a complementary task, detection of imminent failure across a "
-  "whole multi-vendor fleet at true prevalence, and do not compare error figures directly. "
-  "[[Optional: reproduce their protocol and a leak-free variant for a direct comparison.]]")
+  "whole multi-vendor fleet at true prevalence, and do not compare error figures directly.")
 P("Our predictor uses gradient-boosted trees {cite:lightgbm,xgboost} tuned with Optuna {cite:optuna}; "
   "urgency uses an accelerated-failure-time survival model {cite:aft} evaluated with the concordance index "
   "{cite:harrell}; explanations use SHAP and exact TreeSHAP {cite:shap,treeshap}; and the maintenance "
@@ -319,9 +318,10 @@ P("The primary metric is drive-day AUPRC on the full test split, reported with l
   "accuracy is not reported. Drive-level AUPRC scores each drive's latest record against whether it ever "
   "fails within the horizon. Rows of one drive are not independent, so every interval resamples physical "
   "drives: an exact weighted average-precision bootstrap over all 352,383 test drives (B = 1000), in which "
-  "a drive drawn *m* times contributes each of its rows *m* times. Two studies, an infrastructure-feature "
-  "ablation and a model-fusion study, fixed their decision rules before any result was seen, with a "
-  "materiality margin of 0.003 AUPRC.")
+  "a drive drawn *m* times contributes each of its rows *m* times. Every comparative study (the "
+  "infrastructure-feature ablation, the model-fusion study, the 2026 evaluation, retraining, alert "
+  "policies and tier sizing) fixed its decision rule in a committed pre-registration before any result was "
+  "seen; model comparisons use a materiality margin of 0.003 AUPRC.")
 
 # ============================================================== IV. system
 H1("System Design")
@@ -409,7 +409,7 @@ table("Risk tiers on test, drive level (cutoffs fixed on validation)",
       [2.4, 1.7, 2.6, 1.7])
 P("The HIGH tier is small (1.8 percent of drives) and precise enough to act on: more than half of its "
   "drives fail within the horizon (Table IV). The tiers were calibrated to capture 50 and 80 percent of "
-  "failing drive-days on validation and capture 52.3 and 75.5 percent on test, so the calibration transfers "
+  "failing drive-days on validation and capture 52.2 and 75.4 percent on test, so the calibration transfers "
   "to a later period. Among failing drives observed at each lead time, the share scoring at or above the "
   "alert threshold (0.62) is 42.7, 50.5, 54.7 and 63.2 percent at 30, 14, 7 and 1 days before failure; "
   "half of failing drives are therefore flagged two weeks ahead. The 17.6 percent of failing drives that "
@@ -591,7 +591,8 @@ P("DiskGuard shows that useful, explainable and safe failure management can be b
 
 H5("Data and Code Availability")
 P("The Backblaze data are public {cite:backblaze}. All stages are scripted, with pinned dependencies, "
-  "pre-registration documents and the results files behind every table. [[Repository link.]]")
+  "pre-registration documents and the results files behind every table, at "
+  "https://github.com/rakshithaaa-m/capstone.")
 
 H5("References")
 for k in _order:
