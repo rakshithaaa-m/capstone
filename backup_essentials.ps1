@@ -24,4 +24,6 @@ Copy-Dir "results" @() @("risk_tiers_test.csv", "lstm_full_test_preds.csv", "lst
 Copy-Dir "results_fusion" @() @("pa_xgb_aft_test_preds.csv", "pa_xgb_aft_val_preds.csv")
 foreach ($d in "models", "models_ablation", "models_fusion", "models_retrain2026", "results_ablation",
                "results_fresh2026", "results_retrain2026", "results_before_rerun") { Copy-Dir $d }
+# deployment: small outputs and the agent evaluation; per-row scores rebuild with 31_deploy_2026.py
+Copy-Dir "results_deploy2026" @("results_deploy2026\_work") @("risk_tiers_test.csv", "hybrid_test_scores.csv")
 Write-Host "[DONE] $Dest"
