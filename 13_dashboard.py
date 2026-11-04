@@ -895,6 +895,67 @@ def render_overview(
     render_model_health_section(results_dir, tier_accuracy, metrics, lgbm_metrics, status, source_version)
 
 
+def render_drift_panel(results_dir: str) -> None:
+    """Drift monitor (33_drift_monitor.py): the deployed model against its own
+    validation period, with the frozen model's replay as context."""
+    info_path = Path(results_dir) / "drift.json"
+    monthly_path = Path(results_dir) / "drift_monthly.csv"
+    if not (info_path.exists() and monthly_path.exists()):
+        return
+    info = json.loads(info_path.read_text())
+    deployed, frozen = info["deployed"], info["frozen_replay"]
+    monthly = pd.read_csv(monthly_path)
+    latest = monthly.iloc[-1]
+    labelled = monthly.dropna(subset=["auprc_ratio"])
+    lim = deployed["limits"]
+
+    st.markdown("### Drift monitor")
+    style = {"RETRAIN": "metric-high", "WARN": "metric-medium", "OK": "metric-low"}[latest["status"]]
+    cols = st.columns(4, gap="medium")
+    with cols[0]:
+        metric_card("Status", str(latest["status"]), f"month {latest['month']}", style)
+    with cols[1]:
+        metric_card("Alert volume", f"{latest['alert_ratio']:.2f}×",
+                    f"vs validation · retrain at {lim['RETRAIN']['alert_ratio']:.2f}×")
+    with cols[2]:
+        metric_card("Score shift (PSI)", f"{latest['psi']:.3f}",
+                    f"warn {lim['WARN']['psi']:.2f} · retrain {lim['RETRAIN']['psi']:.2f}")
+    with cols[3]:
+        if labelled.empty:
+            metric_card("AUPRC", "—", "labels arrive 14 days late")
+        else:
+            last = labelled.iloc[-1]
+            metric_card("AUPRC, last 3 months", f"{last['auprc_ratio']:.2f}×",
+                        f"to {last['month']} vs validation · retrain at {lim['RETRAIN']['auprc_ratio']:.2f}×")
+    level = latest["status"]
+    if level != "OK":
+        lv = lim[level]
+        reasons = [label for label, hit in (
+            (f"alert volume {latest['alert_ratio']:.2f}×", latest["alert_ratio"] >= lv["alert_ratio"]),
+            (f"score shift PSI {latest['psi']:.3f}", latest["psi"] >= lv["psi"]),
+            (f"3-month AUPRC {latest['auprc_ratio']:.2f}×",
+             pd.notna(latest["auprc_ratio"]) and latest["auprc_ratio"] <= lv["auprc_ratio"]),
+        ) if hit]
+        ranking_ok = pd.notna(latest["auprc_ratio"]) and latest["auprc_ratio"] > lim["WARN"]["auprc_ratio"]
+        note = (" Ranking quality has not degraded yet, so this is an early warning; the daily "
+                "top-k queue keeps the workload fixed meanwhile." if ranking_ok else "")
+        (st.error if level == "RETRAIN" else st.warning)(
+            f"{level}: triggered by {', '.join(reasons)}.{note}"
+        )
+    chart = monthly.set_index("month")[["alert_ratio", "auprc_ratio"]].rename(
+        columns={"alert_ratio": "Alert volume", "auprc_ratio": "AUPRC"})
+    # columns sort alphabetically (AUPRC, Alert volume); same blue/orange pair as the paper's Fig. 2
+    st.line_chart(chart, height=220, y_label="× validation", color=["#2a78d6", "#eb6834"])
+    st.caption(
+        "Alert volume and score shift need no labels; AUPRC uses rows with 14 days of "
+        f"follow-up. Replayed on the frozen model, the monitor first warned in "
+        f"{frozen['first_warn']} and called for retraining in {frozen['first_retrain']}; "
+        "retraining on recent data then recovered 2026 AUPRC from 0.061 to 0.078 (results_retrain2026)."
+    )
+    with st.expander("Monthly values"):
+        st.dataframe(monthly, hide_index=True, width="stretch")
+
+
 def render_tier_queue(results_dir: str, source_version: str) -> None:
     st.markdown("### Operational queue")
     st.caption(
@@ -1012,6 +1073,8 @@ def render_model_health_section(
             st.caption("Cutoffs were calibrated on validation; the capture shown here is held-out test.")
     else:
         st.info("Model metrics are not available yet.")
+
+    render_drift_panel(results_dir)
 
     source_text = (
         "Indexed drive-status table"

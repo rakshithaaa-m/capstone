@@ -110,6 +110,7 @@ the training period, and the tier cutoffs are fitted on validation.
 | `30_relabel_dec2025.py` | completes test labels for 2025-12-18..31 with January 2026 failures (602 rows); rewrites the test label files and bootstrap cache |
 | `31_deploy_2026.py` | ships the retrained model: scores 2026, tiers, urgency, SHAP actions, dashboard DB → `results_deploy2026/` |
 | `32_alert_policies.py` | pre-registered alert-policy study (persistence, daily top-k) for the shipped model → `results_alerts2026/` |
+| `33_drift_monitor.py` | monthly drift monitor (alert volume, score PSI, 3-month AUPRC) with a retrain flag; frozen-model replay → `results_drift/`, dashboard panel |
 
 The `fix*.py`, `check_*.py`, `verify_*.py` and `diagnose_*.py` files are
 one-off diagnostics kept for provenance.

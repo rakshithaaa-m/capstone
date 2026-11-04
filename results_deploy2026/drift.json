@@ -1,0 +1,48 @@
+{
+  "deployed": {
+    "run": "deployed",
+    "threshold": 0.73,
+    "reference_alert_rate": 0.0063935345308002685,
+    "reference_auprc": 0.08419063783562288,
+    "limits": {
+      "RETRAIN": {
+        "alert_ratio": 1.25,
+        "psi": 0.25,
+        "auprc_ratio": 0.75
+      },
+      "WARN": {
+        "alert_ratio": 1.1,
+        "psi": 0.1,
+        "auprc_ratio": 0.85
+      }
+    },
+    "label_lag_days": 14,
+    "first_warn": "2026-02",
+    "first_retrain": "2026-04",
+    "latest_month": "2026-06",
+    "latest_status": "RETRAIN"
+  },
+  "frozen_replay": {
+    "run": "frozen",
+    "threshold": 0.62,
+    "reference_alert_rate": 0.00820117135963917,
+    "reference_auprc": 0.11936656689976202,
+    "limits": {
+      "RETRAIN": {
+        "alert_ratio": 1.25,
+        "psi": 0.25,
+        "auprc_ratio": 0.75
+      },
+      "WARN": {
+        "alert_ratio": 1.1,
+        "psi": 0.1,
+        "auprc_ratio": 0.85
+      }
+    },
+    "label_lag_days": 14,
+    "first_warn": "2024-11",
+    "first_retrain": "2025-07",
+    "latest_month": "2026-06",
+    "latest_status": "RETRAIN"
+  }
+}
