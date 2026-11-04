@@ -53,6 +53,9 @@ REFS = {
                'pp. 4832–4841.',
     "tfbest": 'R. Mohapatra and S. Sengupta, "TFBEST: Dual-aspect transformer with learnable positional '
               'encoding for failure prediction," 2023, arXiv:2309.02641.',
+    "murray": 'J. F. Murray, G. F. Hughes, and K. Kreutz-Delgado, "Machine learning methods for predicting '
+              'failures in hard drives: A multiple-instance application," *J. Mach. Learn. Res.*, vol. 6, '
+              'pp. 783–816, 2005.',
     "ding": 'J. Ding, H. Li, and J. Li, "MLP-LightGBM hard drive failure prediction with transfer learning '
             'performance," in *Proc. IEEE Int. Symp. Parallel and Distributed Processing with Applications '
             '(ISPA)*, 2024, pp. 1333–1340, doi: 10.1109/ISPA63168.2024.00179.',
@@ -388,7 +391,8 @@ table("Same scores under different evaluation protocols",
       [3.1, 1.4, 1.2, 1.3, 1.5])
 P("Every positive drive-day is kept in every protocol, so recall at the threshold is 59.8 percent "
   "throughout; undersampled rows are means of ten draws (AUPRC varies by at most 0.002). Undersampling to a "
-  "1:1 balance [[cite studies evaluated on balanced test sets]] raises AUPRC elevenfold and precision at the "
+  "1:1 balance, close to the class mix of early benchmark data (178 good and 191 failed drives, assigned at "
+  "random to training and test sets {cite:murray}), raises AUPRC elevenfold and precision at the "
   "deployed threshold from 2.8 to 98.4 percent: an operator would expect almost every alert to be a real "
   "failure, when in deployment about one in 36 is. Drawing negatives only from never-failing drives removes "
   "the hard negatives in a failing drive's earlier life and still inflates AUPRC by 56 percent. ROC-AUC is "
