@@ -20,10 +20,10 @@ NBINS = 10
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--test", default="results/lgbm_test_probs.csv")
-    ap.add_argument("--out", default="results_ablation/calibration_metrics.csv")
+    ap.add_argument("--test", default="results_model2/_work/test2026.csv")
+    ap.add_argument("--out", default="results_model2/calibration_bins.csv")
     ap.add_argument("--bins", type=int, default=NBINS)
-    ap.add_argument("--out_summary", default="results_ablation/calibration_summary.csv")
+    ap.add_argument("--out_summary", default="results_model2/calibration.csv")
     args = ap.parse_args()
 
     con = duckdb.connect()

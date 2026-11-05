@@ -140,7 +140,7 @@ def build_cache(a_csv: Path, b_csv: Path, test_parquet: Path, out: Path) -> None
     # Built-in join check: the test split has a known size and positive count
     # (from each arm's confusion matrix).  A duplicate or dropped join row shows
     # up here instead of silently shifting every downstream metric.
-    ref = pd.read_csv(Path("results_ablation") / a_csv.parent.name / "lgbm_metrics.csv")
+    ref = pd.read_csv(Path("archive/model1/results_ablation") / a_csv.parent.name / "lgbm_metrics.csv")
     expect_pos = int(ref["tp"].iloc[0] + ref["fn"].iloc[0])
     got_pos = con.execute(
         f"SELECT sum(y) FROM read_parquet('{out.as_posix()}')").fetchone()[0]
@@ -224,12 +224,12 @@ def bootstrap_delta(pA, pB, y, drive_id, n_boot: int):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--a_dir", default="results_ablation/without_infra")
-    ap.add_argument("--b_dir", default="results_ablation/with_infra")
+    ap.add_argument("--a_dir", default="archive/model1/results_ablation/without_infra")
+    ap.add_argument("--b_dir", default="archive/model1/results_ablation/with_infra")
     ap.add_argument("--train", default="data/processed/train_resampled.parquet")
     ap.add_argument("--test", default="data/processed/features_test.parquet")
     ap.add_argument("--boot", type=int, default=1000)
-    ap.add_argument("--out_prefix", default="results_ablation/ablation")
+    ap.add_argument("--out_prefix", default="archive/model1/results_ablation/ablation")
     ap.add_argument("--rebuild", action="store_true")
     ap.add_argument("--reuse_bootstrap", action="store_true",
                     help="reuse saved replicates instead of recomputing them "
@@ -289,8 +289,8 @@ def main() -> None:
 
     # ---- per-seed -------------------------------------------------------
     seed_rows = []
-    pa = Path("results_ablation") / f"per_seed_full_{a_dir.name}.csv"
-    pb = Path("results_ablation") / f"per_seed_full_{b_dir.name}.csv"
+    pa = Path("archive/model1/results_ablation") / f"per_seed_full_{a_dir.name}.csv"
+    pb = Path("archive/model1/results_ablation") / f"per_seed_full_{b_dir.name}.csv"
     wins = 0
     n_seed_pairs = 0
     if pa.exists() and pb.exists():

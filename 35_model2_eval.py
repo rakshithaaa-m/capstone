@@ -222,11 +222,11 @@ def logreg() -> None:
 # ------------------------------------------------------------------- urgency
 def urgency() -> None:
     import xgboost as xgb
-    s21 = _load("s21", "archive/fusion_study/21_rul_compare.py")
+    s23 = _load("s23", "23_pa_urgency.py")
     feats = json.load(open("models/lgbm_feature_cols.json"))["feature_cols"]
     con = _duck()
     cols = ", ".join(f'"{c}"' for c in feats)
-    # as Model 1 (21_rul_compare): each drive's first usable row; failing drives have an
+    # each drive's first usable row; failing drives have an
     # event at rul_days, surviving drives are censored at the days they are known alive
     first = con.execute(f"""
         WITH ok AS (SELECT * FROM read_parquet('{FEATURES.as_posix()}/*.parquet')
@@ -238,9 +238,9 @@ def urgency() -> None:
                CASE WHEN ok.rul_days IS NOT NULL THEN 1 ELSE 0 END AS event, {cols}
         FROM ok JOIN span USING (serial_number)
         QUALIFY row_number() OVER (PARTITION BY ok.serial_number ORDER BY ok.date) = 1""").fetchdf()
-    bst = xgb.Booster(model_file="models_fusion/pa_xgb_aft.json")
+    bst = xgb.Booster(model_file="models/urgency/pa_xgb_aft.json")
     pred = np.clip(bst.inplace_predict(first[feats].astype("float32").to_numpy()) - 1.0, 0.0, None)
-    c = s21.harrell_c(first["t"].to_numpy(float), first["event"].to_numpy(int), pred)
+    c = s23.harrell_c(first["t"].to_numpy(float), first["event"].to_numpy(int), pred)
     db = duckdb.connect("results_deploy2026/dashboard.duckdb", read_only=True)
     by_tier = dict(db.execute("SELECT risk_tier, avg(fleet_urgency_pct) FROM drive_status GROUP BY 1").fetchall())
     _save("urgency", {"drives": len(first), "failing": int(first["event"].sum()), "c_index": c,

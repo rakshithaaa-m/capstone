@@ -172,7 +172,7 @@ def predict(arm: str) -> None:
     if arm == "B":
         return predict_b()
     feats = feature_cols()
-    frozen = _boosters(Path("models"))
+    frozen = _boosters(Path("archive/model1/models"))
     new = _boosters(MODELS / arm)
     WORK.mkdir(parents=True, exist_ok=True)
 
@@ -406,8 +406,8 @@ def decide(n_boot: int) -> None:
         fit[p] = {"threshold": cost_threshold(val["y"], val[p]),
                   "cut": {"high_cutoff": s09.find_tier_cutoff(val[p], val["y"], 0.5),
                           "medium_cutoff": s09.find_tier_cutoff(val[p], val["y"], 0.8)}}
-    fit["p_F"] = {"threshold": float(json.load(open("models/lgbm_threshold.json"))["threshold"]),
-                  "cut": json.load(open("results/tier_cutoffs.json"))}
+    fit["p_F"] = {"threshold": float(json.load(open("archive/model1/models/lgbm_threshold.json"))["threshold"]),
+                  "cut": json.load(open("archive/model1/results/tier_cutoffs.json"))}
     res["fitted_on_validation"] = {k[2:]: v for k, v in fit.items()}
     res["val_auprc"] = {k[2:]: float(__import__("sklearn.metrics", fromlist=["x"]).average_precision_score(
         val["y"], val[k])) for k in ("p_F", "p_A", "p_B")}

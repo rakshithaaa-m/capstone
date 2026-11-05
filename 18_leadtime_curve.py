@@ -16,7 +16,7 @@ row).  We take fail_date = max(date) over the failing rows of each drive.
 
 For each failing drive and each horizon L in {30, 14, 7, 1}, we look up the
 probability at date = fail_date - L and flag HIGH when it is >= the shipped
-cost-optimal threshold (0.62 from models/lgbm_threshold.json).
+alert threshold (0.73, fitted on validation; results_retrain2026/results.json).
 
 Outputs:
   results_ablation/leadtime_curve.csv
@@ -33,14 +33,14 @@ HORIZONS = [30, 14, 7, 1]
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--test", default="results/lgbm_test_probs.csv")
+    ap.add_argument("--test", default="results_model2/_work/test2026.csv")
     ap.add_argument("--threshold", type=float, default=None)
-    ap.add_argument("--out", default="results_ablation/leadtime_curve.csv")
+    ap.add_argument("--out", default="results_model2/leadtime.csv")
     args = ap.parse_args()
 
     thr = args.threshold
     if thr is None:
-        thr = float(json.load(open("models/lgbm_threshold.json"))["threshold"])
+        thr = float(json.load(open("results_retrain2026/results.json"))["fitted_on_validation"]["A"]["threshold"])
 
     con = duckdb.connect()
     t = "read_csv('" + Path(args.test).as_posix() + "', header=true)"

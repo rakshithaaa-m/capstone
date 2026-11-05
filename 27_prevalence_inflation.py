@@ -6,7 +6,7 @@ under evaluation protocols often used in the drive-failure literature.  No
 model is retrained and no system decision depends on it.
 
 Protocols
-  true        all 144.7M test drive-days at the real positive rate (this paper)
+  true        all 57.6M test drive-days (Jan-Jun 2026) at the real positive rate
   never       the trivial "no drive ever fails" rule, true prevalence
   healthy     negatives taken only from drives that never fail in the test window
               (the "failed vs healthy drives" design); all positives kept
@@ -15,11 +15,11 @@ Protocols
               each negative kept with probability k / n_neg; repeated --reps times
 
 Metrics: AUPRC, ROC-AUC, and precision / recall / F1 / accuracy at the shipped
-threshold (models/lgbm_threshold.json), plus the best F1 over all thresholds
+threshold (0.73, fitted on validation), plus the best F1 over all thresholds
 (what a paper that tunes its threshold on the evaluation data would report).
 
-Input: results_fusion/_pb_confirm_joined.parquet (drive_id, prob, y); only the
-LightGBM column is used.
+Input: results_model2/_work/cache2026.parquet (drive_id, prob, y), written by
+35_model2_eval.py export.
 
 Usage:
     python 27_prevalence_inflation.py --reps 10
@@ -73,15 +73,15 @@ def metrics(prob: np.ndarray, y: np.ndarray, thr: float) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cache", default="results_fusion/_pb_confirm_joined.parquet")
+    ap.add_argument("--cache", default="results_model2/_work/cache2026.parquet")
     ap.add_argument("--reps", type=int, default=10)
-    ap.add_argument("--out", default="results/paper_tables/table_prevalence_inflation.csv")
+    ap.add_argument("--out", default="results_model2/inflation.csv")
     ap.add_argument("--threshold", type=float, default=None,
-                    help="alert threshold; default: the frozen model's (models/lgbm_threshold.json)")
+                    help="alert threshold; default: Model 2's (results_retrain2026/results.json)")
     args = ap.parse_args()
 
     thr = args.threshold if args.threshold is not None else float(
-        json.load(open("models/lgbm_threshold.json"))["threshold"])
+        json.load(open("results_retrain2026/results.json"))["fitted_on_validation"]["A"]["threshold"])
     t = pq.read_table(args.cache, columns=["drive_id", "prob", "y"])
     drive = t["drive_id"].to_numpy()
     prob = t["prob"].to_numpy()

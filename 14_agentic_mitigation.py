@@ -516,7 +516,7 @@ def build_drive_context(
         "fleet_urgency_pct": urgency_pct,
         "urgency_semantics": (
             "share of the fleet the P-A survival model expects to outlive this "
-            "drive (test C-index 0.75); a ranking, not a day count"
+            "drive (test C-index 0.84); a ranking, not a day count"
         ),
         "decision_horizon_days": horizon_days,
         "tier_cutoffs": {

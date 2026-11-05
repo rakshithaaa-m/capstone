@@ -436,8 +436,8 @@ def run_live(agent, results_dir: Path, out_dir: Path, n: int, model: str | None,
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("mode", choices=["policy", "redteam", "live"])
-    ap.add_argument("--results_dir", default="results")
-    ap.add_argument("--out_dir", default="results/agent_eval")
+    ap.add_argument("--results_dir", default="results_deploy2026")
+    ap.add_argument("--out_dir", default="results_deploy2026/agent_eval")
     ap.add_argument("--n_low", type=int, default=2000, help="policy: seeded LOW sample size")
     ap.add_argument("--limit", type=int, default=None, help="policy: smoke-test subsample")
     ap.add_argument("--n_per_stratum", type=int, default=8, help="live: drives per tier x urgency band")

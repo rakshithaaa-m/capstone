@@ -15,9 +15,9 @@ tier.  HIGH drives keep the deadline.
 
 Usage (use the full at-risk SHAP file for complete dashboard coverage):
     python3 12_mitigation_mapping.py \
-        --risk_tiers results/risk_tiers_test.csv \
-        --shap_values results/shap_values_at_risk.parquet \
-        --out results/mitigation_mapping.json
+        --risk_tiers results_deploy2026/risk_tiers_test.csv \
+        --shap_values results_deploy2026/shap_values_at_risk.parquet \
+        --out results_deploy2026/mitigation_mapping.json
 
 Do not substitute the small ``shap_values.parquet`` sample unless you
 intentionally want a sample-only explanation mapping.
@@ -340,7 +340,7 @@ def main() -> None:
         required=True,
         help="SHAP parquet to map; use shap_values_at_risk.parquet for full at-risk coverage",
     )
-    parser.add_argument("--out", type=str, default="results/mitigation_mapping.json")
+    parser.add_argument("--out", type=str, default="results_deploy2026/mitigation_mapping.json")
     args = parser.parse_args()
 
     shap_df = pd.read_parquet(args.shap_values)

@@ -15,66 +15,66 @@ data/
 # re-running the documented pipeline stages.  They are excluded to keep the
 # repository reviewable; see 00_setup.md -> "Regenerating excluded artifacts"
 # for the exact commands.
-results/dashboard.duckdb
-results/*.duckdb
+archive/model1/results/dashboard.duckdb
+archive/model1/results/*.duckdb
 
 # Stage 7/8 per-row exports (GB-scale)
-results/*test_scores.csv
-results/*val_scores.csv
-results/*test_probs.csv
-results/*val_probs.csv
-results/risk_tiers_test.csv
-results/risk_tiers_val.csv
-results/lstm_full_test_preds.csv
-results/lstm_full_val_preds.csv
+archive/model1/results/*test_scores.csv
+archive/model1/results/*val_scores.csv
+archive/model1/results/*test_probs.csv
+archive/model1/results/*val_probs.csv
+archive/model1/results/risk_tiers_test.csv
+archive/model1/results/risk_tiers_val.csv
+archive/model1/results/lstm_full_test_preds.csv
+archive/model1/results/lstm_full_val_preds.csv
 
 # Stage 11 SHAP matrices - intermediate, consumed by Stage 12, rebuildable
-results/shap_values.parquet
-results/shap_values_at_risk.parquet
+archive/model1/results/shap_values.parquet
+archive/model1/results/shap_values_at_risk.parquet
 
 # Stage 12 root-cause mapping - rebuildable from the two SHAP files above
-results/mitigation_mapping.json
+archive/model1/results/mitigation_mapping.json
 
 # --- Tracked on purpose -----------------------------------------------------
-# models/*.json, models/lgbm_model.txt, models/hybrid_meta_model.pkl,
+# archive/model1: models/*.json, lgbm_model.txt, hybrid_meta_model.pkl,
 # results/*_metrics.csv, results/*_accuracy_*.csv, results/ablation_*.csv,
 # results/baseline_comparison.csv, results/decision_quality.csv,
 # results/shap/*.png
 # These ARE the paper's evidence and must stay in version control.
 
 # Ignore large model weights (if over GitHub's limit)
-models/*.pt
+archive/model1/models/*.pt
 
 # --- Superseded / scratch artifacts -----------------------------------------
 # Quarantined stale exports kept for provenance. Multi-GB, never tracked.
-results/*.STALE-*.csv
+archive/model1/results/*.STALE-*.csv
 # Pre-rerun snapshots of the old model's metrics (kept locally as a record,
 # reproducible via RUNBOOK.md, but they describe a model that no longer ships).
-results_before_rerun/
-results/backup_tier1/
+archive/model1/results_before_rerun/
+archive/model1/results/backup_tier1/
 # Ensemble accumulator checkpoints (large scratch, resumable not shareable)
-results/_ens_ckpt_test/
+archive/model1/results/_ens_ckpt_test/
 
 # --- Amendment 03 fusion-partner study ---------------------------------------
 # Per-row partner predictions (GB-scale), regenerable by 20_/22_/... scripts.
-results_fusion/*_preds.csv
-results_fusion/*.partial
-results_fusion/_pb_confirm_*.parquet
+archive/model1/results_fusion/*_preds.csv
+archive/model1/results_fusion/*.partial
+archive/model1/results_fusion/_pb_confirm_*.parquet
 
 # --- Identifier ablation (Amendments 01/02) ---------------------------------
 # Per-row arm predictions and the joined bootstrap cache are GB-scale and
 # regenerable (17_ablation_compare.py); each arm's lgbm_metrics.csv is tracked.
-results_ablation/*/lgbm_*_probs.csv
-results_ablation/_ablation_joined*
+archive/model1/results_ablation/*/lgbm_*_probs.csv
+archive/model1/results_ablation/_ablation_joined*
 # Arm models (41 MB), regenerable with 06_train_lightgbm.py per the RUNBOOK.
-models_ablation/
+archive/model1/models_ablation/
 
 # Local pre-change snapshots, kept for provenance; each records its git commit.
 snapshot_*/
 
 # Agent evaluation: per-drive check table (3 MB), regenerable by 25_agent_eval.py policy
-results/agent_eval/policy_checks.csv
-results/agent_eval/policy_runs.jsonl
+archive/model1/results/agent_eval/policy_checks.csv
+archive/model1/results/agent_eval/policy_runs.jsonl
 
 # --- Deployment of the retrained model (31_deploy_2026.py) -------------------
 # Per-row 2026 scores, SHAP matrix, mapping and serving DB are GB-scale and
@@ -90,3 +90,9 @@ results_deploy2026/pa_urgency_test.csv
 
 # Model 2 evaluation exports (GB-scale, rebuilt by 35_model2_eval.py export)
 results_model2/_work/
+
+# Survival-model validation predictions (reference fleet for urgency), regenerable
+# with 20_train_xgb_aft.py
+models/urgency/*_preds.csv
+# Model 2 identifier-ablation arm models, regenerable with 36_model2_infra_ablation.py
+models_model2_ablation/

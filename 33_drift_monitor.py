@@ -20,7 +20,7 @@ AUPRC; monthly AUPRC swings 0.6-1.4x without drift (e.g. the January holiday mon
 it raised RETRAIN on noise and was replaced by the pooled three-month window.
 
 Two runs:
-  frozen    models/ (threshold 0.62), reference 2024-04..09, Oct 2024..Jun 2026 replayed
+  frozen    archive/model1/models (threshold 0.62), reference 2024-04..09, Oct 2024..Jun 2026 replayed
   deployed  models_retrain2026/A (threshold 0.73), reference 2025-07..12-17, 2026 monitored;
             written to results_deploy2026/drift_*.json|csv for the dashboard
 
@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score
 
-OUT = Path("results_drift")
+OUT = Path("archive/model1/results_drift")
 DEPLOY = Path("results_deploy2026")
 DATA_END = "2026-06-30"
 LABEL_LAG_DAYS = 14
@@ -47,9 +47,9 @@ RUNS = {
     "frozen": {
         "threshold": 0.62,
         "reference": "SELECT CAST(date AS DATE) d, lgbm_prob p, failure_within_14d y "
-                     "FROM read_csv('results/lgbm_val_probs.csv')",
+                     "FROM read_csv('archive/model1/results/lgbm_val_probs.csv')",
         "monitor": "SELECT CAST(date AS DATE) d, lgbm_prob p, failure_within_14d y "
-                   "FROM read_csv('results/lgbm_test_probs.csv') UNION ALL "
+                   "FROM read_csv('archive/model1/results/lgbm_test_probs.csv') UNION ALL "
                    "SELECT CAST(date AS DATE) d, prob p, failure_within_14d y "
                    "FROM read_parquet('data/processed/fresh2026/scores/*.parquet')",
     },

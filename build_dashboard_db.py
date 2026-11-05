@@ -192,7 +192,7 @@ def build_serving_tables(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--results_dir", type=str, default="results")
+    parser.add_argument("--results_dir", type=str, default="results_deploy2026")
     parser.add_argument(
         "--features_path",
         type=str,
@@ -230,10 +230,8 @@ def main() -> None:
     mitigation_path = results_dir / "mitigation_mapping.json"
     cutoffs_path = results_dir / "tier_cutoffs.json"
     hybrid_config_path = results_dir.parent / "models" / "hybrid_config.json"
-    # a deployment results dir (31_deploy_2026.py) carries its own urgency file
+    # the deployment results dir (31_deploy_2026.py) carries its own urgency file
     urgency_path = results_dir / "pa_urgency_test.csv"
-    if not urgency_path.exists():
-        urgency_path = results_dir.parent / "results_fusion" / "pa_urgency_test.csv"
     if not risk_path.exists():
         raise FileNotFoundError(
             f"Missing {risk_path}. Run Stage 9 (risk-tier calibration) first."

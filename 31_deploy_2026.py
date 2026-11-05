@@ -6,8 +6,7 @@ model A (models_retrain2026/A) on the newest data, 2026-01-01 to 2026-06-30. Mod
 was trained on data to 2025-06-16, so these are genuine out-of-sample scores; it is
 never applied to the 2024-25 test period, part of which it was trained on.
 
-models/ and results/ are left untouched: they hold the frozen model and the paper's
-evaluation, which stay reproducible.
+The earlier model it replaced is archived in archive/model1/.
 
 Stages (run in order, or `all`):
   score      ensemble scores for every 2026 row -> risk_tiers_test.csv, hybrid_test_scores.csv
@@ -157,7 +156,7 @@ def metrics() -> None:
         "threshold": thr, "tier_cutoffs": cfg["cut"],
         "scored_window": ["2026-01-01", "2026-06-30"],
         "metrics_window": ["2026-01-01", LABEL_END],
-        "decision": str(DECISION), "replaces": "models/ (frozen, trained to 2024-03-31)",
+        "decision": str(DECISION), "replaces": "archive/model1/models (trained to 2024-03-31)",
     }, indent=2))
     print(f"[METRICS] 2026 to {LABEL_END}: AUPRC {auprc:.4f}, ROC {auc:.3f}, P/R at {thr} "
           f"{prec:.3f}/{rec:.3f}, HIGH capture {rows[0]['cumulative_share_captured']:.3f}", flush=True)
@@ -195,11 +194,11 @@ def urgency() -> None:
     latest = con.execute(f"""
         SELECT serial_number, CAST(date AS DATE) AS date, {cols} FROM read_parquet('{FEATURES.as_posix()}/*.parquet')
         QUALIFY row_number() OVER (PARTITION BY serial_number ORDER BY date DESC) = 1""").fetchdf()
-    bst = xgb.Booster(model_file="models_fusion/pa_xgb_aft.json")
+    bst = xgb.Booster(model_file="models/urgency/pa_xgb_aft.json")
     x = np.clip(bst.inplace_predict(latest[feats].astype("float32").to_numpy()) - 1.0, 0.0, None)
     # same reference fleet and definition as Stage 23 (the survival model is unchanged)
     s23 = _load("s23", "23_pa_urgency.py")
-    ref = np.sort(s23.latest_per_drive(con, Path("results_fusion/pa_xgb_aft_val_preds.csv"))["aft_rul_pred"].to_numpy())
+    ref = np.sort(s23.latest_per_drive(con, Path("models/urgency/pa_xgb_aft_val_preds.csv"))["aft_rul_pred"].to_numpy())
     shorter, not_longer = np.searchsorted(ref, x, side="left"), np.searchsorted(ref, x, side="right")
     out = pd.DataFrame({"serial_number": latest["serial_number"], "date": latest["date"].astype(str),
                         "aft_rul_pred": x.astype("float32"),

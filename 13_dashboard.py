@@ -208,8 +208,7 @@ def parse_args() -> argparse.Namespace:
     else:
         argv = []
     parser = argparse.ArgumentParser(description="Predictive HDD maintenance dashboard")
-    # results_deploy2026: the retrained model on 2026 data (31_deploy_2026.py);
-    # results: the frozen model on the 2024-25 test period (paper evaluation)
+    # results_deploy2026: the deployed model on 2026 data (31_deploy_2026.py)
     parser.add_argument("--results_dir", type=str, default="results_deploy2026")
     return parser.parse_args(argv)
 
@@ -232,9 +231,7 @@ def _source_signature(results: Path) -> str:
         results / "tier_cutoffs.json",
         results.parent / "models" / "hybrid_config.json",
         # Must match build_dashboard_db.py's signature order exactly.
-        results / "pa_urgency_test.csv"
-        if (results / "pa_urgency_test.csv").exists()
-        else results.parent / "results_fusion" / "pa_urgency_test.csv",
+        results / "pa_urgency_test.csv",
     ]
     parts: list[str] = []
     for path in paths:
@@ -897,13 +894,13 @@ def render_overview(
 
 def render_drift_panel(results_dir: str) -> None:
     """Drift monitor (33_drift_monitor.py): the deployed model against its own
-    validation period, with the frozen model's replay as context."""
+    validation period."""
     info_path = Path(results_dir) / "drift.json"
     monthly_path = Path(results_dir) / "drift_monthly.csv"
     if not (info_path.exists() and monthly_path.exists()):
         return
     info = json.loads(info_path.read_text())
-    deployed, frozen = info["deployed"], info["frozen_replay"]
+    deployed = info["deployed"]
     monthly = pd.read_csv(monthly_path)
     latest = monthly.iloc[-1]
     labelled = monthly.dropna(subset=["auprc_ratio"])
@@ -948,9 +945,8 @@ def render_drift_panel(results_dir: str) -> None:
     st.line_chart(chart, height=220, y_label="× validation", color=["#2a78d6", "#eb6834"])
     st.caption(
         "Alert volume and score shift need no labels; AUPRC uses rows with 14 days of "
-        f"follow-up. Replayed on the frozen model, the monitor first warned in "
-        f"{frozen['first_warn']} and called for retraining in {frozen['first_retrain']}; "
-        "retraining on recent data then recovered 2026 AUPRC from 0.061 to 0.078 (results_retrain2026)."
+        "follow-up. On RETRAIN, retrain on the most recent labelled data with the same "
+        "pipeline (29_retrain_2026.py)."
     )
     with st.expander("Monthly values"):
         st.dataframe(monthly, hide_index=True, width="stretch")
@@ -1028,10 +1024,7 @@ def render_model_health_section(
                     else float("nan")
                 )
                 metric_card("HIGH-tier capture", f"{recall:.1%}", "held-out test")
-        st.caption(
-            f"Predictor: {model_description(results_dir)}. More complex combinations "
-            "were evaluated and did not beat it (archive/fusion_study/)."
-        )
+        st.caption(f"Predictor: {model_description(results_dir)}.")
         if not tier_accuracy.empty and "cumulative_share_captured" in tier_accuracy:
             st.caption("Cutoffs were calibrated on validation; the capture shown here is held-out test.")
     elif not metrics.empty:

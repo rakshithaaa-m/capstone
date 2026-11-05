@@ -1,25 +1,20 @@
 """
-Stage 23 -- fleet urgency from the P-A survival model (Amendment 03, D-03).
+Fleet urgency from the survival model (XGBoost AFT, models/urgency/pa_xgb_aft.json).
 
-P-A (XGBoost AFT) ranks drives by time-to-failure well (test C-index 0.749)
-but its absolute day counts are ~1,000 days off (FINDINGS_P-A.md), so the
+The model ranks drives by time-to-failure well (Model 2 test C-index 0.841,
+results_model2/urgency.json) but its absolute day counts are far off, so the
 dashboard shows a RANKING rather than a countdown:
 
-    fleet_urgency_pct = share of the reference fleet that P-A expects to
+    fleet_urgency_pct = share of the reference fleet that the model expects to
                         outlive this drive (ties count half)
 
-The reference fleet is each drive's latest P-A prediction on the VALIDATION
-split, so test drives are never ranked against themselves.  Output is one row
-per test drive at its latest date -- the same row the dashboard's
-``drive_status`` table holds.
-
-Usage:
-    python 23_pa_urgency.py
+The reference fleet is each drive's latest prediction on the validation split
+(models/urgency/pa_xgb_aft_val_preds.csv), so test drives are never ranked
+against themselves.  Helpers only: 31_deploy_2026.py builds the urgency table
+and 35_model2_eval.py measures the C-index.
 """
 from __future__ import annotations
 
-import argparse
-import json
 from pathlib import Path
 
 import numpy as np
@@ -35,47 +30,50 @@ def latest_per_drive(con, csv: Path):
     """).fetchdf()
 
 
-def main() -> None:
-    import duckdb
+def harrell_c(time: np.ndarray, event: np.ndarray, pred: np.ndarray) -> float:
+    """Harrell's C for predicted survival time (higher pred = longer life).
 
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--val", default="results_fusion/pa_xgb_aft_val_preds.csv")
-    ap.add_argument("--test", default="results_fusion/pa_xgb_aft_test_preds.csv")
-    ap.add_argument("--out", default="results_fusion/pa_urgency_test.csv")
-    args = ap.parse_args()
+    A pair (i, j) is comparable when i has an event and time_i < time_j.  It is
+    concordant when pred_i < pred_j; tied predictions count 1/2.  O(n log n)
+    with a Fenwick tree over prediction ranks, inserting drives in order of
+    decreasing time so every query sees exactly the strictly-longer-lived set.
+    """
+    ranks = np.unique(pred, return_inverse=True)[1] + 1
+    m = int(ranks.max())
+    tree = np.zeros(m + 1, dtype=np.int64)
 
-    con = duckdb.connect(config={"memory_limit": "6GB",
-                                 "temp_directory": str(Path.home() / "duck_spool")})
-    try:
-        print("[LOAD] reference fleet: latest validation prediction per drive ...")
-        ref = np.sort(latest_per_drive(con, Path(args.val))["aft_rul_pred"].to_numpy())
-        print("[LOAD] test drives: latest prediction per drive ...")
-        test = latest_per_drive(con, Path(args.test))
-    finally:
-        con.close()
+    def add(r):
+        while r <= m:
+            tree[r] += 1
+            r += r & -r
 
-    x = test["aft_rul_pred"].to_numpy()
-    shorter = np.searchsorted(ref, x, side="left")
-    not_longer = np.searchsorted(ref, x, side="right")
-    longer = len(ref) - not_longer
-    ties = not_longer - shorter
-    test["fleet_urgency_pct"] = 100.0 * (longer + 0.5 * ties) / len(ref)
-    test["date"] = test["date"].astype(str)
-    test.to_csv(args.out, index=False, lineterminator="\n")
+    def prefix(r):
+        s = 0
+        while r > 0:
+            s += tree[r]
+            r -= r & -r
+        return s
 
-    meta = {
-        "reference": "latest P-A prediction per drive, validation split",
-        "reference_drives": int(len(ref)),
-        "test_drives": int(len(test)),
-        "definition": "share of the reference fleet P-A expects to outlive the drive",
-        "test_c_index": 0.7491,
-        "source": "results_fusion/FINDINGS_P-A.md",
-    }
-    Path(args.out).with_suffix(".json").write_text(json.dumps(meta, indent=2))
-    q = np.percentile(test["fleet_urgency_pct"], [10, 50, 90])
-    print(f"[SAVE] {args.out}  {len(test):,} drives vs {len(ref):,} reference; "
-          f"urgency p10/p50/p90 = {q[0]:.1f}/{q[1]:.1f}/{q[2]:.1f}")
+    order = np.argsort(-time, kind="stable")
+    t_sorted = time[order]
+    conc = ties = total = 0.0
+    inserted = 0
+    i = 0
+    while i < len(order):
+        j = i
+        while j < len(order) and t_sorted[j] == t_sorted[i]:
+            j += 1
+        group = order[i:j]
+        for k in group[event[group] == 1]:
+            r = ranks[k]
+            le = prefix(r)
+            eq = le - prefix(r - 1)
+            conc += inserted - le
+            ties += eq
+            total += inserted
+        for k in group:
+            add(ranks[k])
+        inserted += len(group)
+        i = j
+    return (conc + 0.5 * ties) / total if total else float("nan")
 
-
-if __name__ == "__main__":
-    main()

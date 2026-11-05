@@ -42,7 +42,7 @@ CLEANED = Path("data/processed/cleaned_by_quarter")
 HISTORY = CLEANED / "cleaned_2025_Q4.parquet"
 RAW_GLOB = "data/raw/data_Q*_2026/**/*.csv"
 WORK = Path("data/processed/fresh2026")
-OUT = Path("results_fresh2026")
+OUT = Path("archive/model1/results_fresh2026")
 N_PARTS = 60
 FIRST_2026 = pd.Timestamp("2026-01-01")
 EVAL_END = pd.Timestamp("2026-06-16")   # last day with a full 14-day follow-up
@@ -146,7 +146,7 @@ def _setup():
 def features(worker: int = 0, n_workers: int = 1) -> None:
     s03, medians, core, first, feature_cols = _setup()
     seeds = json.load(open("models/lgbm_ensemble_seeds.json"))["seeds"]
-    boosters = [lgb.Booster(model_file=f"models/lgbm_model_seed{s}.txt") for s in seeds]
+    boosters = [lgb.Booster(model_file=f"archive/model1/models/lgbm_model_seed{s}.txt") for s in seeds]
     (WORK / "features").mkdir(parents=True, exist_ok=True)
     (WORK / "scores").mkdir(parents=True, exist_ok=True)
     keep = ["serial_number", "date", "model", "datacenter", "failure", "rul_days", TARGET]
@@ -209,8 +209,8 @@ def validate(parts: int = 2) -> None:
 def evaluate(n_boot: int) -> None:
     from sklearn.metrics import average_precision_score, roc_auc_score
     s17 = _load("s17", "17_ablation_compare.py")
-    thr = float(json.load(open("models/lgbm_threshold.json"))["threshold"])
-    cut = json.load(open("results/tier_cutoffs.json"))
+    thr = float(json.load(open("archive/model1/models/lgbm_threshold.json"))["threshold"])
+    cut = json.load(open("archive/model1/results/tier_cutoffs.json"))
     con = _duck()
     src = (WORK / "scores").as_posix() + "/*.parquet"
     df = con.execute(f"""
@@ -294,7 +294,7 @@ def diagnose() -> None:
     """Post hoc (not in PLAN.md): AUPRC by month, and HIGH-tier precision by drive model,
     marking models absent from the training period."""
     from sklearn.metrics import average_precision_score
-    cut = json.load(open("results/tier_cutoffs.json"))["high_cutoff"]
+    cut = json.load(open("archive/model1/results/tier_cutoffs.json"))["high_cutoff"]
     con = _duck()
     src = (WORK / "scores").as_posix() + "/*.parquet"
     df = con.execute(f"""

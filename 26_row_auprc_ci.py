@@ -1,15 +1,12 @@
 """
 Stage 26 -- headline row-level AUPRC confidence interval for LightGBM (paper).
 
-The earlier interval in results/paper_tables/table_bootstrap_ci.csv used 25
-replicates on 40,000-drive subsamples, which is too few for a stable 95%
-interval.  This script uses the exact weighted-AP bootstrap from
-17_ablation_compare.py: B replicates over ALL 352,383 test drives and ALL
-144.7M drive-day rows, resampling physical drives.
+Exact weighted-AP bootstrap from 17_ablation_compare.py: B replicates over ALL
+test drives and ALL drive-day rows (Jan-Jun 2026: 363,405 drives, 57.6M rows),
+resampling physical drives.
 
-Input: the joined LightGBM test cache written by the archived §7 confirmation
-(results_fusion/_pb_confirm_joined.parquet: drive_id, prob, y).  Only the
-LightGBM column is used.
+Input: results_model2/_work/cache2026.parquet (drive_id, prob, y), written by
+35_model2_eval.py export.
 
 Usage:
     python 26_row_auprc_ci.py --boot 1000
@@ -31,9 +28,9 @@ SEED = 42
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cache", default="results_fusion/_pb_confirm_joined.parquet")
+    ap.add_argument("--cache", default="results_model2/_work/cache2026.parquet")
     ap.add_argument("--boot", type=int, default=1000)
-    ap.add_argument("--out", default="results/paper_tables/table_row_auprc_ci_full.csv")
+    ap.add_argument("--out", default="results_model2/row_auprc_ci.csv")
     args = ap.parse_args()
 
     spec = importlib.util.spec_from_file_location("s17", "17_ablation_compare.py")
