@@ -1,6 +1,6 @@
 """Fig. 3: alert budget vs precision and coverage on 2026 (results_alerts2026).
-Fig. 4: drift-monitor replay, monthly alert volume vs validation (results_drift).
-Run from the repo root. Same style and colours as make_fig2.py."""
+Fig. 4: drift monitor on 2026, alert volume and 3-month AUPRC vs validation (results_deploy2026).
+Run from the repo root. """
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt, matplotlib.dates as mdates
@@ -48,34 +48,30 @@ ax.legend(frameon=False, fontsize=6.6, loc="center left", bbox_to_anchor=(0.0, 0
 fig.tight_layout(pad=0.3); fig.savefig("paper/figures/fig3_alert_budget.png", dpi=300); plt.close(fig)
 
 # ---------------------------------------------------------------- Fig. 4
-fz = pd.read_csv("results_drift/monthly_frozen.csv")
-dp = pd.read_csv("results_drift/monthly_deployed.csv")
-lim = json.load(open("results_drift/summary.json"))["frozen"]["limits"]
-for df in (fz, dp):
-    df["t"] = pd.PeriodIndex(df["month"], freq="M").to_timestamp()
+dp = pd.read_csv("results_deploy2026/drift_monthly.csv")
+lim = json.load(open("results_deploy2026/drift.json"))["deployed"]["limits"]
+dp["t"] = pd.PeriodIndex(dp["month"], freq="M").to_timestamp()
 fig, ax = plt.subplots(figsize=(3.45, 2.1), dpi=300)
-ax.plot(fz["t"], fz["alert_ratio"], color=BLUE, lw=1.6, marker="o", ms=3.8, markeredgecolor="white",
-        markeredgewidth=0.6, label="Frozen model (trained to Mar 2024)", zorder=3)
-ax.plot(dp["t"], dp["alert_ratio"], color=GREEN, lw=1.6, ls="--", marker="^", ms=4.2, markeredgecolor="white",
-        markeredgewidth=0.6, label="Retrained model (trained to Jun 2025)", zorder=3)
-right = fz["t"].max() + pd.Timedelta(days=12)
-for level, ls in (("RETRAIN", (0, (3, 2))), ("WARN", (0, (1, 2)))):
-    y = lim[level]["alert_ratio"]
+ax.plot(dp["t"], dp["alert_ratio"], color=BLUE, lw=1.6, marker="o", ms=3.8, markeredgecolor="white",
+        markeredgewidth=0.6, label="Alert volume (no labels needed)", zorder=3)
+ax.plot(dp["t"], dp["auprc_ratio"], color=ORANGE, lw=1.6, ls="--", marker="s", ms=3.8, markeredgecolor="white",
+        markeredgewidth=0.6, label="AUPRC, last 3 labelled months", zorder=3)
+left, right = dp["t"].min() - pd.Timedelta(days=12), dp["t"].max() + pd.Timedelta(days=12)
+for y, text, ls in ((lim["RETRAIN"]["alert_ratio"], "retrain", (0, (3, 2))), (1.0, "validation", (0, (1, 2)))):
     # the line stops short of its label so the two never overlap
-    ax.hlines(y, fz["t"].min() - pd.Timedelta(days=15), right, color=MUTED, lw=0.8, ls=ls, zorder=2)
-    ax.text(right + pd.Timedelta(days=4), y, f"{level.lower()} {y:.2f}×", va="center", ha="left",
-            fontsize=6.6, color=MUTED)
-first = fz.loc[fz["status"] == "RETRAIN", "t"].min()
-ax.annotate("retrain flagged\nJul 2025", xy=(first, fz.loc[fz["t"] == first, "alert_ratio"].iloc[0]),
-            xytext=(first - pd.Timedelta(days=150), 1.52), fontsize=6.6, color=INK,
+    ax.hlines(y, left, right, color=MUTED, lw=0.8, ls=ls, zorder=2)
+    ax.text(right + pd.Timedelta(days=4), y, f"{text} {y:.2f}×", va="center", ha="left", fontsize=6.6, color=MUTED)
+first = pd.Period(json.load(open("results_deploy2026/drift.json"))["deployed"]["first_retrain"], freq="M").to_timestamp()
+ax.annotate("retrain flagged\nApr 2026", xy=(first, dp.loc[dp["t"] == first, "alert_ratio"].iloc[0]),
+            xytext=(first - pd.Timedelta(days=75), 1.42), fontsize=6.6, color=INK,
             arrowprops={"arrowstyle": "-", "color": MUTED, "lw": 0.6})
-ax.set_ylabel("Alert volume (× validation)", color=INK)
-ax.set_ylim(0.95, 1.85)
-ax.set_xlim(fz["t"].min() - pd.Timedelta(days=15), right + pd.Timedelta(days=135))
-# quarterly ticks over the data only; the right margin holds the limit labels
-ax.set_xticks(pd.date_range("2024-10-01", "2026-07-01", freq="QS-JAN"))
-ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+ax.set_ylabel("× validation", color=INK)
+ax.set_xlabel("2026", color=INK)
+ax.set_ylim(0.6, 1.5)
+ax.set_xlim(left, right + pd.Timedelta(days=55))
+ax.set_xticks(dp["t"])
+ax.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
 style(ax)
-ax.legend(frameon=False, fontsize=6.6, loc="upper left", handlelength=2.2, labelspacing=0.3)
+ax.legend(frameon=False, fontsize=6.6, loc="lower left", handlelength=2.2, labelspacing=0.3)
 fig.tight_layout(pad=0.3); fig.savefig("paper/figures/fig4_drift_replay.png", dpi=300); plt.close(fig)
 print("saved fig3_alert_budget.png and fig4_drift_replay.png")
