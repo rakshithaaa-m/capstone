@@ -1,0 +1,11 @@
+[URGENCY] 363,548 drives; p10/p50/p90 10.2/53.2/91.0
+[BUILD] dashboard database: D:\capstone\results_deploy2026\dashboard.duckdb
+[BUILD] reading risk_tiers_test.csv directly for compact build
+[BUILD] reading hybrid_test_scores.csv directly for compact build
+[BUILD] source exports changed; rebuilding the compact layer directly from the current CSVs.
+[BUILD] built drive_status: 65.2s
+[BUILD] indexed drive_status: 0.0s
+[BUILD] built mitigation table: 1.8s
+[BUILD] serving tables are ready
+[URGENCY] {"drives": 363404, "failing": 2552, "c_index": 0.8469529860930686, "mean_urgency_by_tier": {"HIGH": 99.1463304474641, "LOW": 45.75881400720117, "MEDIUM": 82.11097214056643}}
+[DONE] urgency (28.9 min)

@@ -92,7 +92,8 @@ results_deploy2026/pa_urgency_test.csv
 results_model2/_work/
 
 # Survival-model validation predictions (reference fleet for urgency), regenerable
-# with 20_train_xgb_aft.py
+# with 37_urgency_model2.py predict
 models/urgency/*_preds.csv
+archive/model1/models/urgency/*_preds.csv
 # Model 2 identifier-ablation arm models, regenerable with 36_model2_infra_ablation.py
 models_model2_ablation/

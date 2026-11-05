@@ -1,0 +1,27 @@
+{
+  "params": {
+    "objective": "survival:aft",
+    "eval_metric": "aft-nloglik",
+    "aft_loss_distribution": "normal",
+    "tree_method": "hist",
+    "nthread": -1,
+    "verbosity": 0,
+    "learning_rate": 0.08050133467208365,
+    "max_depth": 3,
+    "min_child_weight": 1.0238685663156577,
+    "subsample": 0.7424083556223253,
+    "colsample_bytree": 0.7916135769831637,
+    "reg_lambda": 0.45042834710787116,
+    "aft_loss_distribution_scale": 1.5745487185553344,
+    "seed": 42
+  },
+  "num_boost_round": 77,
+  "n_trials": 30,
+  "train_rows": 3438214,
+  "tune_rows": 4998379,
+  "dropped_post_failure_rows": {
+    "train": 2292,
+    "tune": 1621
+  },
+  "time_unit": "rul_days + 1 (prediction file is back in days)"
+}

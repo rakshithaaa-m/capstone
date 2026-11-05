@@ -1,7 +1,7 @@
 """
 Fleet urgency from the survival model (XGBoost AFT, models/urgency/pa_xgb_aft.json).
 
-The model ranks drives by time-to-failure well (Model 2 test C-index 0.841,
+The model ranks drives by time-to-failure well (Model 2 test C-index 0.847,
 results_model2/urgency.json) but its absolute day counts are far off, so the
 dashboard shows a RANKING rather than a countdown:
 

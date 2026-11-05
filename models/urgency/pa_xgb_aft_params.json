@@ -6,22 +6,40 @@
     "tree_method": "hist",
     "nthread": -1,
     "verbosity": 0,
-    "learning_rate": 0.08050133467208365,
+    "learning_rate": 0.10219054408912176,
     "max_depth": 3,
-    "min_child_weight": 1.0238685663156577,
-    "subsample": 0.7424083556223253,
-    "colsample_bytree": 0.7916135769831637,
-    "reg_lambda": 0.45042834710787116,
-    "aft_loss_distribution_scale": 1.5745487185553344,
+    "min_child_weight": 10.968457429274222,
+    "subsample": 0.607297900208189,
+    "colsample_bytree": 0.8381374981240167,
+    "reg_lambda": 9.53094530942254,
+    "aft_loss_distribution_scale": 1.994024797621153,
     "seed": 42
   },
-  "num_boost_round": 77,
+  "num_boost_round": 64,
   "n_trials": 30,
-  "train_rows": 3438214,
-  "tune_rows": 4998379,
-  "dropped_post_failure_rows": {
-    "train": 2292,
-    "tune": 1621
+  "train_window": [
+    "2013-04-10",
+    "2025-06-16"
+  ],
+  "tune_window": [
+    "2025-07-01",
+    "2025-12-17"
+  ],
+  "train": {
+    "rows": 4271396,
+    "dropped_post_failure": 2458,
+    "events": 575666,
+    "censored_share": 0.8651500677686113,
+    "failing_after_end_censored": 23200
   },
-  "time_unit": "rul_days + 1 (prediction file is back in days)"
+  "tune": {
+    "rows": 5096386,
+    "dropped_post_failure": 2583,
+    "events": 13788,
+    "censored_share": 0.9972931815384302,
+    "failing_after_end_censored": 340
+  },
+  "labels": "events only up to each split's end; otherwise censored",
+  "time_unit": "rul_days + 1 (prediction file is back in days)",
+  "script": "37_urgency_model2.py"
 }

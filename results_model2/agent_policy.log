@@ -1,17 +1,17 @@
 [POLICY] 64,743 drives: 5,108 HIGH, 57,635 MEDIUM, 2,000 LOW sample
-[POLICY] 5,000/64,743  114s
-[POLICY] 10,000/64,743  226s
-[POLICY] 15,000/64,743  340s
-[POLICY] 20,000/64,743  452s
-[POLICY] 25,000/64,743  566s
-[POLICY] 30,000/64,743  681s
-[POLICY] 35,000/64,743  796s
-[POLICY] 40,000/64,743  911s
-[POLICY] 45,000/64,743  1,026s
-[POLICY] 50,000/64,743  1,142s
-[POLICY] 55,000/64,743  1,256s
-[POLICY] 60,000/64,743  1,370s
-[POLICY] done in 1,478s; 0 drives with a failed invariant
+[POLICY] 5,000/64,743  133s
+[POLICY] 10,000/64,743  265s
+[POLICY] 15,000/64,743  397s
+[POLICY] 20,000/64,743  530s
+[POLICY] 25,000/64,743  657s
+[POLICY] 30,000/64,743  783s
+[POLICY] 35,000/64,743  910s
+[POLICY] 40,000/64,743  1,037s
+[POLICY] 45,000/64,743  1,164s
+[POLICY] 50,000/64,743  1,292s
+[POLICY] 55,000/64,743  1,417s
+[POLICY] 60,000/64,743  1,542s
+[POLICY] done in 1,662s; 0 drives with a failed invariant
                               check      kind  applicable  passed  failed  pass_rate
                prediction_unchanged invariant       64743   64743       0        1.0
                  low_gets_no_action invariant        2000    2000       0        1.0

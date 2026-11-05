@@ -31,7 +31,7 @@ and 0.67% of drives are positive. Full numbers: `results_model2/`.
 | HIGH tier: failing drive-days caught (row level) | 57.9%; HIGH + MEDIUM: 79.6% |
 | Failing drives at or above the threshold 30 / 14 / 7 / 1 days before failure | 35% / 44% / 48% / 54% |
 | Daily alert queue (top 2,074 drives/day) | 67.2% of failing drives caught at a fixed daily workload |
-| Fleet-urgency ranking, C-index | 0.841 |
+| Fleet-urgency ranking, C-index | 0.847 |
 
 The threshold and tier cutoffs (HIGH 50%, MEDIUM 80% recall) were fitted on
 validation, not on test. Scores are **ranking scores** (Brier 0.011, ECE 0.037),
@@ -98,7 +98,7 @@ validation; the test period was scored once.
 | `36_model2_infra_ablation.py` | pre-registered identifier ablation → `results_model2/infra_ablation.json` |
 | `17_ablation_compare.py`, `26_row_auprc_ci.py` | exact drive-clustered bootstrap for AUPRC and paired differences |
 | `18_leadtime_curve.py`, `19_calibration.py`, `27_prevalence_inflation.py` | lead time, calibration, evaluation-shortcut table |
-| `20_train_xgb_aft.py`, `23_pa_urgency.py` | survival model (`models/urgency/`) and fleet-urgency ranking |
+| `37_urgency_model2.py`, `23_pa_urgency.py` | survival model on Model 2's training window, labels censored at each split's end (`models/urgency/`), and fleet-urgency ranking; `20_train_xgb_aft.py` supplies the shared estimator and search |
 | `25_agent_eval.py` | agent evaluation: policy audit, red team, live harness |
 | `32_alert_policies.py` | pre-registered alert-policy study (daily top-k adopted) → `results_alerts2026/` |
 | `33_drift_monitor.py` | monthly drift monitor (alert volume, score PSI, 3-month AUPRC) with a retrain flag → dashboard panel |

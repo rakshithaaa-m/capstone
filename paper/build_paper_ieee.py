@@ -220,7 +220,7 @@ runs(ab,
      "Recall-calibrated risk tiers place 67 percent of failing drives in a HIGH tier that holds 1.3 percent "
      "of the fleet, and a fixed daily alert budget raises the precision of new alerts by 14 percent over a "
      "fixed threshold with 22 percent fewer alerts. A survival model supplies an urgency ranking (C-index "
-     "0.84) instead of an unreliable day count, TreeSHAP attributions are mapped to root causes and actions, "
+     "0.85) instead of an unreliable day count, TreeSHAP attributions are mapped to root causes and actions, "
      "and a tool-using language-model agent drafts maintenance tickets that a human must approve, with safety "
      "rules enforced in code and verified on 64,743 drives, ten adversarial scenarios and a live open-weight "
      "model. A label-free drift monitor flags when the model should be retrained.")
@@ -339,7 +339,9 @@ P("Operators work from tiers, not raw scores. Cutoffs are set on validation so t
   "MEDIUM at 0.033. The cutoffs are frozen and applied unchanged to test.")
 H2("Fleet Urgency")
 P("An XGBoost accelerated-failure-time model {cite:aft} is fitted on the same features with "
-  "interval-censored labels, on data to March 2024. Its absolute day estimates are unreliable, because most "
+  "interval-censored labels, on the classifier's training rows, with hyperparameters tuned on a whole-drive "
+  "sample of validation. Failures after a split's last day are treated as censored, so no label uses later "
+  "data. Its absolute day estimates are unreliable, because most "
   "of its training rows are censored, so the system reports a ranking: fleet urgency is the share of a "
   "reference fleet that the model expects to outlive the drive. Urgency orders work within a tier and "
   "never moves a drive to a higher tier.")
@@ -441,9 +443,9 @@ figure(FIG / "fig3_alert_budget.png", "Daily alert budget on the test period: sh
        "threshold, which raised 2,654 alerts a day.")
 H2("Urgency Ranking")
 P("On each test drive's first 2026 observation (363,404 drives, 2,552 with a recorded failure), the "
-  "survival model reaches a concordance index of 0.841 {cite:harrell}. Expressed as fleet urgency, the "
-  "ranking agrees with the tiers without being redundant: mean urgency is 99.3 percent in HIGH, 84.0 in "
-  "MEDIUM and 55.9 in LOW, so it orders the large MEDIUM tier rather than repeating it.")
+  "survival model reaches a concordance index of 0.847 {cite:harrell}. Expressed as fleet urgency, the "
+  "ranking agrees with the tiers without being redundant: mean urgency is 99.1 percent in HIGH, 82.1 in "
+  "MEDIUM and 45.8 in LOW, so it orders the large MEDIUM tier rather than repeating it.")
 H2("Robustness")
 P("*Infrastructure identifiers (pre-registered).* Restoring the five identifiers, with the same training "
   "rows, hyperparameters and seeds, raises AUPRC from 0.0779 to 0.0797 (+0.0018, 95% CI +0.0003 to "
@@ -510,7 +512,7 @@ P("Limitations. Scores are ranking scores, not calibrated probabilities. SMART h
   "of failing drives stay in the LOW tier. The MEDIUM tier is broad and imprecise. The test period covers "
   "six months, and failure labels come from operational removals and may include drives removed for other "
   "reasons. The fleet belongs to one operator and may not represent others. Training used an undersampled "
-  "set, the survival model was fitted on an earlier window than the classifier, and the agent's tools are "
+  "set, and the agent's tools are "
   "simulated.")
 
 # ============================================================== VII. conclusion

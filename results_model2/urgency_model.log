@@ -1,0 +1,51 @@
+[BUILD] train.parquet: 4,271,396 rows
+[BUILD] tune.parquet: 5,096,386 rows
+Traceback (most recent call last):
+  File "D:\capstone\37_urgency_model2.py", line 168, in <module>
+    main()
+  File "D:\capstone\37_urgency_model2.py", line 164, in main
+    {"build": build, "train": lambda: train(args.n_trials), "predict": predict}[st]()
+  File "D:\capstone\37_urgency_model2.py", line 90, in build
+    con.execute(f"COPY ({sql}) TO '{dst.with_suffix('.tmp').as_posix()}' (FORMAT parquet)")
+_duckdb.ParserException: Parser Error: syntax error at or near "t"
+
+LINE 3: ... DATE '2025-12-17' AND CAST(date AS DATE) >= DATE '2025-07-01' t
+                                                                          ^
+[BUILD] train.parquet: 4,271,396 rows
+[BUILD] tune.parquet: 5,096,386 rows
+[BUILD] val_latest.parquet: 341,718 rows
+[LOAD] train {'rows': 4271396, 'dropped_post_failure': 2458, 'events': 575666, 'censored_share': 0.8651500677686113, 'failing_after_end_censored': 23200}
+[LOAD] tune {'rows': 5096386, 'dropped_post_failure': 2583, 'events': 13788, 'censored_share': 0.9972931815384302, 'failing_after_end_censored': 340}
+[OPTUNA] trial  0  val aft-nloglik 0.13776  rounds 110
+[OPTUNA] trial  1  val aft-nloglik 0.08733  rounds 34
+[OPTUNA] trial  2  val aft-nloglik 0.05727  rounds 206
+[OPTUNA] trial  3  val aft-nloglik 0.06076  rounds 234
+[OPTUNA] trial  4  val aft-nloglik 0.05372  rounds 60
+[OPTUNA] trial  5  val aft-nloglik 0.06205  rounds 35
+[OPTUNA] trial  6  val aft-nloglik 0.06439  rounds 351
+[OPTUNA] trial  7  val aft-nloglik 0.05765  rounds 242
+[OPTUNA] trial  8  val aft-nloglik 0.05470  rounds 269
+[OPTUNA] trial  9  val aft-nloglik 0.05467  rounds 128
+[OPTUNA] trial 10  val aft-nloglik 0.08323  rounds 52
+[OPTUNA] trial 11  val aft-nloglik 0.05365  rounds 90
+[OPTUNA] trial 12  val aft-nloglik 0.05391  rounds 60
+[OPTUNA] trial 13  val aft-nloglik 0.05338  rounds 64
+[OPTUNA] trial 14  val aft-nloglik 0.05378  rounds 103
+[OPTUNA] trial 15  val aft-nloglik 0.05457  rounds 23
+[OPTUNA] trial 16  val aft-nloglik 0.05750  rounds 86
+[OPTUNA] trial 17  val aft-nloglik 0.05399  rounds 42
+[OPTUNA] trial 18  val aft-nloglik 0.05645  rounds 148
+[OPTUNA] trial 19  val aft-nloglik 0.05538  rounds 59
+[OPTUNA] trial 20  val aft-nloglik 0.05387  rounds 86
+[OPTUNA] trial 21  val aft-nloglik 0.05353  rounds 73
+[OPTUNA] trial 22  val aft-nloglik 0.05467  rounds 54
+[OPTUNA] trial 23  val aft-nloglik 0.05346  rounds 78
+[OPTUNA] trial 24  val aft-nloglik 0.05510  rounds 160
+[OPTUNA] trial 25  val aft-nloglik 0.05516  rounds 74
+[OPTUNA] trial 26  val aft-nloglik 0.05354  rounds 113
+[OPTUNA] trial 27  val aft-nloglik 0.05713  rounds 31
+[OPTUNA] trial 28  val aft-nloglik 0.05409  rounds 23
+[OPTUNA] trial 29  val aft-nloglik 0.05658  rounds 42
+[OPTUNA] best {'learning_rate': 0.10219054408912176, 'max_depth': 3, 'min_child_weight': 10.968457429274222, 'subsample': 0.607297900208189, 'colsample_bytree': 0.8381374981240167, 'reg_lambda': 9.53094530942254, 'aft_loss_distribution_scale': 1.994024797621153}  rounds 64
+[SAVE] models\urgency\pa_xgb_aft.json
+[SAVE] models\urgency\pa_xgb_aft_val_preds.csv  341,718 drives (latest validation row each)
